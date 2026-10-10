@@ -1,0 +1,152 @@
+diff --git a/driver/side_ch/side_ch.c b/driver/side_ch/side_ch.c
+index a031eeb..771c9ad 100644
+--- a/driver/side_ch/side_ch.c
++++ b/driver/side_ch/side_ch.c
+@@ -32,6 +32,8 @@
+ 
+ static int num_eq_init = 8; // should be 0~8
+ static int iq_len_init = 0; //if iq_len>0, iq capture enabled, csi disabled
++static int pre_trigger_init = 256; // pre_trigger_len in samples (C1 calibration constant for combined mode)
++static int combined_init = 0; //if combined_init>0, CSI + IQ combined capture enabled (csi_iq_combined=1)
+ 
+ module_param(num_eq_init, int, 0);
+ MODULE_PARM_DESC(num_eq_init, "num_eq_init. 0~8. number of equalizer output (52 each) appended to CSI");
+@@ -39,6 +41,12 @@ MODULE_PARM_DESC(num_eq_init, "num_eq_init. 0~8. number of equalizer output (52
+ module_param(iq_len_init, int, 0);
+ MODULE_PARM_DESC(iq_len_init, "iq_len_init. if iq_len_init>0, iq capture enabled, csi disabled");
+ 
++module_param(pre_trigger_init, int, 0);
++MODULE_PARM_DESC(pre_trigger_init, "pre_trigger_len in samples. C1 calibration constant: distance from long_preamble_detected peak back to packet start. Written to reg11. Default 256.");
++
++module_param(combined_init, int, 0);
++MODULE_PARM_DESC(combined_init, "combined_init. 1 = CSI + preamble IQ combined capture (reg3 bit0|bit1). IQ window locked by long_preamble_detected, pushed on CSI FC/addr commit.");
++
+ static void __iomem *base_addr; // to store driver specific base address needed for mmu to translate virtual address to physical address in our FPGA design
+ 
+ struct dma_chan *chan_to_pl = NULL;
+@@ -362,15 +370,24 @@ static int get_side_info(int num_eq, int iq_len) {
+ 		return(-1);
+ 	}
+ 
+-	status = dma_async_is_tx_complete(chan_to_ps, chan_to_ps_cookie, NULL, NULL);
+-	if (status!=DMA_COMPLETE) {
+-		printk("%s get_side_info WARNING status!=DMA_COMPLETE\n", side_ch_compatible_str);
+-		return(-1);
++	/* Pre-check only applies once we have issued at least one transfer.
++	 * chan_to_ps_cookie == 0 means "no transfer issued yet"; on a controller
++	 * whose per-channel cookie counters have already advanced (e.g. sdr.ko on
++	 * the same dma@80400000 block), dma_async_is_complete() would report
++	 * DMA_IN_PROGRESS for cookie 0 and wedge this path forever. */
++	if (chan_to_ps_cookie != 0) {
++		status = dma_async_is_tx_complete(chan_to_ps, chan_to_ps_cookie, NULL, NULL);
++		if (status != DMA_COMPLETE) {
++			printk("%s get_side_info WARNING status!=DMA_COMPLETE\n", side_ch_compatible_str);
++			return(-1);
++		}
+ 	}
+ 
+ 	set_user_nice(current, 10);
+ 
+-	if (iq_len>0)
++	if (combined_init)
++		num_dma_symbol_per_trans = RECORD_LEN(iq_len, num_eq);
++	else if (iq_len>0)
+ 		num_dma_symbol_per_trans = 1+iq_len;
+ 	else
+ 		num_dma_symbol_per_trans = HEADER_LEN + CSI_LEN + num_eq*EQUALIZER_LEN;
+@@ -577,10 +594,26 @@ static int dev_probe(struct platform_device *pdev) {
+ 			iq_len_init = 8187;
+ 			printk("%s dev_probe: limit iq_len_init to 8187!\n",side_ch_compatible_str);
+ 		}
+-		SIDE_CH_REG_IQ_CAPTURE_write(1);
+-		SIDE_CH_REG_PRE_TRIGGER_LEN_write(8190);
+-		SIDE_CH_REG_IQ_LEN_write(iq_len_init);
+-		SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
++		if (combined_init) {
++			// whole combined record must fit the m_axis FIFO. E316 (SIDE_CH_LESS_BRAM)
++			// has 4096 64bit words; clamp iq_len so record_len <= 4096.
++			int combined_max_iq_len = SIDE_CH_M_AXIS_FIFO_DEPTH - CSI_BLK_LEN(num_eq_init) - 1;
++			if (iq_len_init > combined_max_iq_len) {
++				iq_len_init = combined_max_iq_len;
++				printk("%s dev_probe: limit iq_len_init to %d for combined mode on 4096-word FIFO!\n", side_ch_compatible_str, iq_len_init);
++			}
++			SIDE_CH_REG_IQ_CAPTURE_write(3); // bit0 iq_capture + bit1 csi_iq_combined
++			SIDE_CH_REG_PRE_TRIGGER_LEN_write(pre_trigger_init);
++			SIDE_CH_REG_IQ_LEN_write(iq_len_init);
++			// do NOT set IQ_TRIGGER: RTL two-stage trigger is internal
++			// (long_preamble_detected locks window, CSI FC/addr commit pushes IQ block)
++		} else {
++			SIDE_CH_REG_IQ_CAPTURE_write(1);
++			// was hardcoded 8190 (truncated on E316 pre_trigger_len); use parameter
++			SIDE_CH_REG_PRE_TRIGGER_LEN_write(pre_trigger_init);
++			SIDE_CH_REG_IQ_LEN_write(iq_len_init);
++			SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
++		}
+ 	}
+ 
+ 	SIDE_CH_REG_CONFIG_write(0x0001); // allow all packets by default; bit12 FC; bit13 addr1; bit14 addr2
+@@ -627,7 +660,10 @@ static int dev_probe(struct platform_device *pdev) {
+ 
+ free_chan_to_ps:
+ 	err = -2;
+-	dma_release_channel(chan_to_ps);
++	/* chan_to_ps may be an ERR_PTR() here (e.g. -ENODEV from dma_request_chan),
++	 * so it must NOT be passed to dma_release_channel() directly. */
++	if (!IS_ERR_OR_NULL(chan_to_ps))
++		dma_release_channel(chan_to_ps);
+ 	return err;
+ 
+ // free_chan_to_pl:
+@@ -651,10 +687,16 @@ static void dev_remove(struct platform_device *pdev)
+ 	// }
+ 
+ 	pr_info("%s dev_remove: dropped chan_to_ps 0x%p\n", side_ch_compatible_str, chan_to_ps);
+-	if (chan_to_pl != NULL) {
++	if (!IS_ERR_OR_NULL(chan_to_ps)) {
+ 		pr_info("%s dev_remove: dropped channel %s\n", side_ch_compatible_str, dma_chan_name(chan_to_ps));
+-		// dmaengine_terminate_all(chan_to_ps); //this also terminate sdr.ko. do not use
++		/* Quiesce this channel before releasing its BD/coherent memory.
++		 * xilinx_dma_free_chan_resources() does dma_free_coherent() on the
++		 * descriptor ring; freeing it while the engine still owns an in-flight
++		 * descriptor leads to a bus error and a hard lockup.
++		 * terminate_sync() only affects our own slave channel, not sdr.ko's. */
++		dmaengine_terminate_sync(chan_to_ps);
+ 		dma_release_channel(chan_to_ps);
++		chan_to_ps = NULL;
+ 	}
+ 
+ 	if (side_info_buf != NULL)
+diff --git a/driver/side_ch/side_ch.h b/driver/side_ch/side_ch.h
+index a5fb54b..bf67801 100644
+--- a/driver/side_ch/side_ch.h
++++ b/driver/side_ch/side_ch.h
+@@ -10,7 +10,16 @@ const char *side_ch_compatible_str = "sdr,side_ch";
+ #define EQUALIZER_LEN (56-4) // for non HT, four {32767,32767} will be padded to achieve 52 (non HT should have 48)
+ #define HEADER_LEN 2 //timestamp and frequency offset
+ 
++// combined mode (csi_iq_combined=1) record length in 64bit words, MUST match the RTL
++// localparam record_len in side_ch_control.v:
++//   [IQ block: TSF + iq_len samples][CSI block: TSF + phase_offset + 56 CSI + num_eq*52 EQ]
++#define CSI_BLK_LEN(num_eq) (HEADER_LEN + CSI_LEN + (num_eq)*EQUALIZER_LEN)
++#define RECORD_LEN(iq_len, num_eq) ((1+(iq_len)) + CSI_BLK_LEN(num_eq))
++
+ #define MAX_NUM_DMA_SYMBOL                         8192   //align with side_ch.v side_ch.h
++// E316 (SIDE_CH_LESS_BRAM) m_axis FIFO depth is 4096 64bit words (non-E316 = 8192).
++// The combined record must fit entirely inside this FIFO, so iq_len is clamped against it.
++#define SIDE_CH_M_AXIS_FIFO_DEPTH                  4096
+ 
+ #define SIDE_CH_REG_MULTI_RST_ADDR                 (0*4)
+ #define SIDE_CH_REG_CONFIG_ADDR                    (1*4)
+diff --git a/kernel_boot/build_boot_bin.sh b/kernel_boot/build_boot_bin.sh
+index c3f2212..9454208 100755
+--- a/kernel_boot/build_boot_bin.sh
++++ b/kernel_boot/build_boot_bin.sh
+@@ -75,7 +75,7 @@ echo '}' >> $OUTPUT_DIR/zynq.bif
+ ### Build fsbl.elf
+ (
+ 	cd $BUILD_DIR
+-	xsct create_fsbl_project.tcl
++	xsct -nodisp create_fsbl_project.tcl
+ )
+ 
+ ### Copy fsbl and system_top.bit into the output folder

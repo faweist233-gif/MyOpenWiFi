@@ -1,0 +1,43 @@
+# 忽略 Vivado / Xilinx 产物
+*.jou
+*.log
+*.str
+*.Xil/
+.Xil/
+vivado*.str
+vivado*.jou
+vivado*.log
+*.dcp
+*.rpt
+*.xsa
+*.bit
+*.bit.bin
+*.bin
+
+# 忽略构建中间产物
+*.o
+*.ko
+*.cmd
+*.mod
+*.mod.c
+*.order
+*.symvers
+*.d
+*.a
+
+# 忽略编辑器与系统文件
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# 忽略临时文件
+*.orig
+*.bak
+*.tmp
+
+# 忽略工具链产出
+__pycache__/
+*.pyc
