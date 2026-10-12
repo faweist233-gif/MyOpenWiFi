@@ -9,17 +9,16 @@
   iq_<stamp>.log      文本日志：包级明细 + record 级解析 + 汇总（汇总区块原地覆盖，只留最新）
   iq_<stamp>_csi.csv  完整 CSI 宽表（每行一个 record：tsf + 56 子载波 I/Q）
 
-★ record 布局（2026-10-10 实测确认，499 word = 3992 字节）：
-    w[0]      TSF_csi  (u64, 微秒)
-    w[1]      phase_offset_taken (i64)
-    w[2..57]  56 x CSI，每 word 低32位 = {I16, Q16}，高32位恒 0
-    w[58]     TSF_iq   (u64, 微秒)
-    w[59..498] 440 x IQ，每 word 低32位 = {I16, Q16}，高32位 = 状态24b+GPIO8b
+★ record 布局（RTL 修复后，[IQ块][CSI块]，499 word = 3992 字节）：
+    w[0]        TSF_iq   (u64, 微秒)
+    w[1..440]   440 x IQ，每 word 低32位 = {I16, Q16}，高32位 = 状态24b+GPIO8b
+    w[441]      TSF_csi  (u64, 微秒)
+    w[442]      phase_offset_taken (i64)  —— 载波频偏 CFO 估计（两个 LTF 符号相位差）
+    w[443..498] 56 x CSI，每 word 低32位 = {I16, Q16}，高32位恒 0
 
-★★ 跨包错位配对（当前 bitstream 的实测行为）：
-    record r = [包N 的 CSI 块][包N+1 的 IQ 块]（CSI 与 IQ 属相邻两个包，
-    相差一个包间隔 10~30ms）。真正的同包配对是 rec_r 的 IQ 块 与
-    rec_{r+1} 的 CSI 块（两者 TSF 差 13~15 µs）。联合分析时须重排。
+★★ 同包配对（RTL 修复后）：同一条 record 内 IQ 块与 CSI 块属**同一包**，
+    TSF_csi − TSF_iq ≈ 13~15 µs（LTF尖峰→header解完的固定间隔）。
+    （历史：跨包错位 bug 时代曾为 [CSI块][IQ块] 且两块相差 ~13ms 跨包，已修复。）
 
 ★★★ 自对齐：PC 从流中途接入时，bin 起点 ≠ record 起点（实测曾错位 93 word）。
     解析器扫描 s∈[0,499) 找使 TSF 单调且数值合理（<2^48）的起点，
@@ -46,6 +45,10 @@ REC_BYTES = REC_WORDS * 8                                       # 3992
 TSF_MAX = 1 << 48                 # TSF 合理上限（IQ/状态字形态的 u64 远大于此）
 TSF_GAP_LIMIT = 1_000_000         # 相邻 record TSF 差超过 1s 视为分段
 PAIR_WINDOW = (10, 60)            # 同包配对 TSF 差的正常窗口 (µs)：LTF尖峰→header解完
+# 同 record 内 TSF_csi − TSF_iq 的物理上限（µs）。两者是同一包内"LTF尖峰→header解完"
+# 两个时刻，实测差固定 13~15µs。错位时两个 TSF 位置读到的是不相关 IQ 采样，差值随机，
+# 用它做强校验：单靠 <2^48 在 TSF 值小时会把"高32位恰为0的 IQ 采样"误判成合法 TSF。
+TSF_PAIR_GAP_MAX = 50
 
 # ---- 块顺序（两种布局，由 --layout 选择）----
 #   csi_first：当前 bitstream 实测（[CSI块][IQ块]，跨包错位 bug 的表象）
@@ -106,17 +109,31 @@ def find_alignment(u64_list):
             other_seq = [u64_list[s + k * REC_WORDS + other_off]
                          for k in range(kmax) if s + k * REC_WORDS + other_off < n]
             if other_seq and all(v < TSF_MAX for v in other_seq):
-                return (s, kmax)
+                # 同 record 差校验：两块 TSF 必须同包（差 ~13~15µs），排除"高32位
+                # 恰为0的 IQ 采样被误判成合法 TSF"（否则 TSF 值小时 <2^48 区分度不够）。
+                paired = True
+                for k in range(len(other_seq)):
+                    d = (other_seq[k] - seq[k]) if (other_off == OFF_TSF_CSI) else (seq[k] - other_seq[k])
+                    if not (0 <= d <= TSF_PAIR_GAP_MAX):
+                        paired = False
+                        break
+                if paired:
+                    return (s, kmax)
     return None
 
 
 def parse_record(u64_list, base):
-    """解析 base 处的一条 record，返回 dict 或 None（若 TSF 不合理）。"""
+    """解析 base 处的一条 record，返回 dict 或 None（若 TSF 不合理或非同包）。"""
     if base + REC_WORDS > len(u64_list):
         return None
     tsf_csi = u64_list[base + OFF_TSF_CSI]
     tsf_iq = u64_list[base + OFF_TSF_IQ]
     if tsf_csi >= TSF_MAX or tsf_iq >= TSF_MAX:
+        return None
+    # ★ 同包强校验：TSF_csi 与 TSF_iq 是同一包的两个时刻，差固定 ~13~15µs。
+    # 错位时两个位置读到的是不相关 IQ 采样，差值随机 → 据此排除"高32位为0的假 TSF"
+    # （否则 TSF 值小时，<2^48 校验区分度不够，会把错位的 IQ 采样误判成合法）。
+    if not (0 <= tsf_csi - tsf_iq <= TSF_PAIR_GAP_MAX):
         return None
     phase = struct.unpack("<q", struct.pack("<Q", u64_list[base + OFF_PHASE]))[0]
     return {"tsf_csi": tsf_csi, "tsf_iq": tsf_iq, "phase": phase, "base": base}
@@ -161,7 +178,7 @@ class SideChParser:
         self.last_tsf_csi = None
         self.skip_pair = False
         self.resync_tried_words = 0
-        self.resync_backoff = 5 * REC_WORDS   # 重试间隔，失败后翻倍（指数退避，防刷屏）
+        self.resync_backoff = 5 * REC_WORDS   # 剩余数据 < 此值时不尝试重同步（等更多数据）
         self.pair_diffs = []
         self.csi_zero_recs = 0
         self.tsf_gaps = []
@@ -196,26 +213,27 @@ class SideChParser:
         while self.next_base + REC_WORDS <= u64n:
             rec = parse_record(u64, self.next_base)
             if rec is None:
-                # TSF 数值不合理（>2^48）→ 流内真错位，尝试重新对齐
-                # 指数退避：失败一次间隔翻倍，避免在长期乱码段里刷屏
+                # TSF 数值不合理（>2^48）→ 流内错位，逐条跳过坏区重新找对齐
                 new_data = u64n - self.next_base
                 if new_data < self.resync_backoff:
                     break
-                self.resync_backoff *= 2
-                self.resync_tried_words = new_data
-                self._event(f"# [重同步] rec {self.rec_count} 处 TSF 数值异常，尝试重新对齐"
-                            f"（数据 {new_data} word）…\n")
+                self._event(f"# [重同步] rec {self.rec_count} 处 TSF 数值异常，"
+                            f"跳过错位区找对齐（数据 {new_data} word）…\n")
                 if self.next_base + 5 * REC_WORDS <= u64n:
                     sub = find_alignment(u64[self.next_base:])
-                    if sub and sub[0] > 0:
-                        self.next_base += sub[0]
+                    if sub is not None:
+                        # 找到对齐（sub[0] 可能为 0 = 当前位置即好区，无需前移）
+                        if sub[0] > 0:
+                            self.next_base += sub[0]
                         self.seg_count += 1
-                        self.resync_backoff = 5 * REC_WORDS   # 成功后复位
+                        self.resync_backoff = 5 * REC_WORDS   # 复位
                         self._event(f"# [重同步] 新起点 = word {self.next_base}"
                                     f"（进入段 {self.seg_count}）\n")
                         continue
-                    # sub 为 None，或 sub[0]==0（"看似对齐"的当前位置 parse 仍失败）：
-                    # 数据已乱到无法恢复，放弃重同步，避免死循环刷屏。
+                    # find_alignment 找不到（错位区 ≥ 4 条 record，前 4 个候选位置
+                    # 必落在坏区）：跳过一条 record 再找，可跨越任意长度错位区
+                    self.next_base += REC_WORDS
+                    continue
                 break
 
             # TSF 跳变分段（合法现象：板子停发/重启）
@@ -224,14 +242,11 @@ class SideChParser:
                 if d < 0 or d > TSF_GAP_LIMIT:
                     self.seg_count += 1
                     self.tsf_gaps.append((self.rec_count, rec["tsf_csi"]))
-                    self.skip_pair = True
                     self._event(f"# [分段] rec {self.rec_count} 处 TSF 跳变 {d} µs → "
-                                f"段 {self.seg_count}（配对校验跳过此点）\n")
-                if self.prev_tsf_iq is not None and not self.skip_pair:
-                    self.pair_diffs.append(rec["tsf_csi"] - self.prev_tsf_iq)
-                self.skip_pair = False
+                                f"段 {self.seg_count}\n")
+            # 同 record 内 TSF 差（同包，~13~15µs）
+            self.pair_diffs.append(rec["tsf_csi"] - rec["tsf_iq"])
 
-            self.prev_tsf_iq = rec["tsf_iq"]
             self.last_tsf_csi = rec["tsf_csi"]
             csi, _ = csi_iq_of_record(u64, self.next_base)
             if all(i == 0 and q == 0 for (i, q) in csi):
@@ -257,8 +272,6 @@ def main():
             for d in existing:
                 shutil.rmtree(os.path.join(OUT_ROOT, d))
             print("[win] 已清理", flush=True)
-    elif existing:
-        print(f"[win] 根目录已有 {len(existing)} 个历史产物目录（保留，不删除）", flush=True)
 
     start_wall = datetime.now()
     stamp = start_wall.strftime("%Y%m%d_%H%M%S")
@@ -269,7 +282,7 @@ def main():
     csv_path = os.path.join(out_dir, f"iq_{stamp}_csi.csv")
 
     print(f"[win] ★ 就绪：监听 0.0.0.0:{PORT}  时长 {DURATION}s", flush=True)
-    print(f"[win] ★ 现在可以启动板端 e316_collect.sh（时序纪律：先监听后采集）", flush=True)
+    print(f"[win] ★ 启动板端 e316_collect.sh", flush=True)
     print(f"[win] 产物目录: {out_dir}", flush=True)
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -312,7 +325,7 @@ def main():
             for i in range(CSI_LEN):
                 cols += [f"csi_{i:02d}_i", f"csi_{i:02d}_q"]
             cols += ["# note: csi 子载波序为硬件输出序(0..55)，映射到频域序参照 side_info_display.py 前后半段交换规则",
-                     "# note: 本 record 的 CSI 属包N、IQ 属包N+1（跨包错位）；同包配对 = 本行 IQ 与下一行 CSI"]
+                     "# note: RTL 修复后，本 record 的 CSI 与 IQ 属同一包（tsf_csi - tsf_iq ≈ 13~15µs）"]
             csv_file.write(",".join(cols) + "\n")
             csv_header_written = True
 
@@ -367,8 +380,7 @@ def main():
                 log.write(f"同包配对校验  : {len(pd)}/{len(parser.pair_diffs)} 条 TSF 差落在 "
                           f"{PAIR_WINDOW[0]}~{PAIR_WINDOW[1]}µs（中位数 "
                           f"{statistics.median(pd) if pd else 'N/A'}）\n")
-            log.write("配对语义      : ★ 跨包错位——record r 的 CSI 属包N、IQ 属包N+1；\n")
-            log.write("                同包配对 = rec_r 的 IQ ↔ rec_{r+1} 的 CSI\n")
+            log.write("配对语义      : ★ 同包——record r 的 CSI 与 IQ 属同一包（差 ~13~15µs）\n")
         log.write(f"\n# 产物: {raw_path}\n#       {csv_path}\n")
         log.write("{" + "=" * 48 + "}\n")
 
@@ -377,8 +389,10 @@ def main():
         w_detail(log, f"# [对齐] 锁定 record 起点 = word {r[0]}（依据 {r[1]} 条 TSF 单调）\n")
 
     def on_record(log, idx, seg, rec, csi):
-        w_detail(log, f"#rec{idx:<5d} 段{seg}  TSF_csi={rec['tsf_csi']:>12d}(包N)  "
-                      f"TSF_iq={rec['tsf_iq']:>12d}(包N+1)  phase={rec['phase']:>4d}  len={REC_BYTES}\n")
+        iq_start = (rec["base"] + OFF_IQ) * 8
+        iq_end = iq_start + IQ_LEN * 8
+        w_detail(log, f"#rec{idx:<5d} 段{seg}  TSF_csi={rec['tsf_csi']:>12d}  "
+                      f"TSF_iq={rec['tsf_iq']:>12d}  iq_bin={iq_start}..{iq_end}\n")
         write_csv_row(idx, seg, rec, csi)
 
     with open(raw_path, "wb") as raw, open(log_path, "w", encoding="utf-8", buffering=1) as log:
@@ -419,10 +433,6 @@ def main():
 
             raw.write(data)
             raw.flush()
-
-            if pkt_count <= 30:
-                w_detail(log, f"#pkt{pkt_count:<5d} t={now - start:7.3f}s  len={len(data):<6d}  "
-                              f"head={data[:16].hex()}\n")
 
             parser.feed(data)
 

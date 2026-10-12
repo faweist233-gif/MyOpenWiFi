@@ -16,6 +16,11 @@ import select
 import sys
 import time
 
+# 无活动超时（秒）：采集类命令（side_ch_ctl g100 后台 + sleep N）在 sleep 期间
+# 无任何 stdout 输出，默认 30s 会被误判为"卡在交互 shell"而中断。可用环境变量
+# AUTO_SSH_IDLE_TIMEOUT 覆盖（一键脚本里设为 采集时长 + 余量）。
+IDLE_TIMEOUT = int(os.environ.get("AUTO_SSH_IDLE_TIMEOUT", "30"))
+
 SSH_OPTS = [
     "-o", "StrictHostKeyChecking=no",
     "-o", "UserKnownHostsFile=/dev/null",
@@ -89,7 +94,7 @@ def run_with_password(argv, password, timeout=600, verbose=False):
                 break
 
             # 长时间无活动且已喂过密码，可能卡在交互 shell
-            if pw_sent > 0 and time.time() - last_activity > 30:
+            if pw_sent > 0 and time.time() - last_activity > IDLE_TIMEOUT:
                 break
 
     try:
