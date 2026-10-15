@@ -118,6 +118,13 @@ cd ~/MyOpenWiFi && ./setup.sh
 
 ## 四、完整构建流程（setup.sh 之后）
 
+> ⚠️ **Viterbi license 必须自行申请（本仓库不随附）**
+> license 绑定**网卡 MAC**，无法跨机器分发。在新电脑上综合 FPGA 前，须：
+> 1. 重新申请 Xilinx 评估 license，绑定**新电脑**的网卡 MAC（见 `docs/学习资料/Viterbi-License-申请与安装清单.md`）；
+> 2. WSL 关掉 `mirrored` 后 eth0 MAC 会变成 NAT 默认值，与 license 绑定的物理网卡 MAC 不一致 → 综合前需临时把 eth0 MAC 改成绑定值：
+>    `sudo ip link set eth0 address <绑定MAC>`（WSL 重启后失效，需重设）。
+> 否则 `open_bd_design` 会报 `no valid licenses found` 卡死。
+
 ```bash
 # 环境体检
 ~/tools/build_env.sh all-check
@@ -154,7 +161,11 @@ python3 ~/tools/wsl_listen_4000.py                                    # 先启�
 
 ## 五、版本对齐
 
-`patches/` 是基于上游 `master` 分支生成的。若上游已更新导致 patch 打不上：
+`patches/` 是基于上游两个 commit 生成的，`setup.sh` 会**自动 checkout 到基线 commit**
+（`openwifi@2f112f0`、`openwifi-hw@d047d79`，见 `setup.sh` 顶部 `OW_BASE`/`HW_BASE`）再套 patch，
+因此正常情况下无需手动处理版本。
+
+若上游更新导致基线 commit 失效（或你想基于更新的上游重新开发）：
 
 ```bash
 cd ~/git/openwifi
@@ -187,3 +198,4 @@ patch 涉及的都是**独立改动块**，冲突概率低；即使有冲突，�
 - 上游代码来自 [open-sdr/openwifi](https://github.com/open-sdr/openwifi) 与 [open-sdr/openwifi-hw](https://github.com/open-sdr/openwifi-hw)（AGPL / 各自许可证）
 - 本仓库只包含改动与工具；使用上游代码请遵守其原始许可证
 - Viterbi IP 需要 Xilinx 评估 license（见 `docs/学习资料/Viterbi-License-申请与安装清单.md`）
+- **license 不随本仓库分发**：license 绑定网卡 MAC，跨机器无效，新电脑须重新申请（见「四、完整构建流程」顶部提醒）

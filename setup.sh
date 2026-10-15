@@ -27,9 +27,10 @@ WORK_DIR="${HOME}/git"
 OW_REMOTE="https://github.com/open-sdr/openwifi.git"
 HW_REMOTE="https://github.com/open-sdr/openwifi-hw.git"
 
-# 上游基线（patch 是基于此版本生成的；如需其他版本见 README「版本对齐」）
-OW_BASE="master"
-HW_BASE="master"
+# 上游基线（patch 是基于此 commit 生成的；clone 后必须切到它，否则 patch 打不上）
+# 若上游 master 更新导致打不上，见 README「版本对齐」手动回退到对应 commit
+OW_BASE="2f112f0"   # openwifi@master 生成 patch 时的 commit
+HW_BASE="d047d79"   # openwifi-hw@master 生成 patch 时的 commit
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCH_DIR="$SCRIPT_DIR/patches"
@@ -68,8 +69,27 @@ echo "  仓库根   : $SCRIPT_DIR"
 mkdir -p "$WORK_DIR"
 
 # ---------------------------------------------------------------- 1. 克隆
+# 把仓库切到 patch 基线的 commit（保证 patch 能可靠打上）
+checkout_base() {
+  local dir="$1" base="$2" name="$3"
+  ( cd "$dir" || exit 1
+    if [ "$(git rev-parse HEAD 2>/dev/null)" = "$base" ]; then
+      grn "  [OK]   $name 已在基线 $base"
+      return 0
+    fi
+    if git cat-file -e "${base}^{commit}" 2>/dev/null; then
+      git checkout "$base" && grn "  [OK]   $name 已切到基线 $base"
+    else
+      ylw "  本地无 $base，尝试 fetch origin ..."
+      git fetch origin "$base" 2>/dev/null && git checkout "$base" \
+        && grn "  [OK]   $name 已切到基线 $base" \
+        || red "  [失败] $name 无法切到基线 $base（网络受限？patch 可能打不上）"
+    fi
+  )
+}
+
 clone_repo() {
-  local url="$1" dir="$2" name="$3"
+  local url="$1" dir="$2" name="$3" base="$4"
   if [ -d "$dir/.git" ]; then
     grn "  [跳过] $name 已存在（$dir）"
   else
@@ -77,14 +97,17 @@ clone_repo() {
     git clone "$url" "$dir" || die "克隆 $name 失败"
     grn "  [OK]   $name"
   fi
+  checkout_base "$dir" "$base" "$name"
 }
 
 if [ "$PATCH_ONLY" -eq 0 ]; then
   hdr "1. 克隆上游仓库"
-  clone_repo "$OW_REMOTE" "$OW_DIR" "openwifi"
-  clone_repo "$HW_REMOTE" "$HW_DIR" "openwifi-hw"
+  clone_repo "$OW_REMOTE" "$OW_DIR" "openwifi" "$OW_BASE"
+  clone_repo "$HW_REMOTE" "$HW_DIR" "openwifi-hw" "$HW_BASE"
 else
   hdr "1. 跳过克隆（--patch-only）"
+  checkout_base "$OW_DIR" "$OW_BASE" "openwifi"
+  checkout_base "$HW_DIR" "$HW_BASE" "openwifi-hw"
 fi
 
 [ -d "$OW_DIR/.git" ] || die "$OW_DIR 不是 git 仓库，请先去掉 --patch-only"
