@@ -29,6 +29,10 @@
 
 ## 二、用法（采集完数据之后）
 
+> ★ **一键脚本已内置这两步**：`one_click_collect.sh` 在采集收尾后自动对最新
+> `iq_*` 目录跑解析 + 绘图，并用浏览器打开 `report.html`；Windows Python 缺
+> numpy/scipy/matplotlib 时会提示安装命令（`--skip-viz` 可跳过）。以下为手动方式。
+
 ```bash
 # ① 解析采集目录（自动找里面的 iq_*.bin）
 python preamble_parse.py C:/iq/iq_20261010_123456

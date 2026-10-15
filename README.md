@@ -100,7 +100,7 @@ cd ~/MyOpenWiFi && ./setup.sh
 | 文件 | 用途 |
 |---|---|
 | `build_env.sh` | ★ 构建环境一站式（子模块/Vitis/内核/驱动/FPGA/license） |
-| `one_click_collect.sh` | ★ 一键采集（等板→部署→Windows 监听→采集→收尾，Git Bash 跑） |
+| `one_click_collect.sh` | ★ 一键采集（等板→部署→Windows 监听→采集→收尾→**前导码解析+可视化报告自动打开**，Git Bash 跑；`--skip-viz` 可跳过可视化） |
 | `win_listen_iq.py` | ★ PC 侧 UDP 接收 + 自对齐解析（**Windows 侧跑**，NAT 拓扑；`--layout=iq_first`） |
 | `e316_deploy.sh` | 板端部署（ADC 修复 + 重载模块 + monitor + side_ch） |
 | `e316_collect.sh` | 板端采集（SIGINT 收尾 + 推 UDP） |
@@ -159,6 +159,7 @@ cd ~/MyOpenWiFi && ./setup.sh
 
 ```bash
 # 推荐：一键（Git Bash，Windows 侧）——等板 → 部署 → 监听 → 采集 → 收尾
+#       → 前导码解析 + 可视化报告（自动打开 report.html；--skip-viz 跳过）
 bash ~/tools/one_click_collect.sh 11 25 C:/iq
 
 # 或两段式：板子 root@192.168.10.122，PC 侧 IP = 192.168.10.2（Windows「以太网 2」）
