@@ -30,6 +30,12 @@
 CH=${1:-5}
 DUR=${2:-25}
 OUT=${3:-"C:/iq"}
+# 时长必须是数字(防把输出目录误传成时长,板端 sleep 会直接报错)
+if ! [[ "$DUR" =~ ^[0-9]+$ ]]; then
+  echo "✗ 用法: bash one_click_collect.sh [信道=5] [采集秒数=25] [输出目录=C:/iq] [--skip-deploy] [--skip-viz]"
+  echo "  第 2 个参数是采集秒数,收到非数字: $DUR"
+  exit 2
+fi
 SKIP_DEPLOY=false
 SKIP_VIZ=false
 for a in "$@"; do
