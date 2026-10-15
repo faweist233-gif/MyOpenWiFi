@@ -4,7 +4,7 @@
 #
 # 用法:
 #   bash one_click_collect.sh [CHANNEL] [DURATION] [OUT_ROOT] [--skip-deploy] [--skip-viz]
-#   默认: ch11, 采集 25s, 输出 C:/iq
+#   默认: ch5, 采集 25s, 输出 C:/iq
 #
 # 完整流程:
 #   [0] 等板上线   [1] 部署板端   [2] Windows 监听   [3] 采集(排空+推UDP)
@@ -27,7 +27,7 @@
 #   - [5] 用 preamble_parse.py + preamble_plot.py 解析最新 iq_* 目录并生成报告，
 #     失败只警告不中断（采集数据始终完好）
 # ============================================================
-CH=${1:-11}
+CH=${1:-5}
 DUR=${2:-25}
 OUT=${3:-"C:/iq"}
 SKIP_DEPLOY=false

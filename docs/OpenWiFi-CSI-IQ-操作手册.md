@@ -13,8 +13,8 @@ PC 侧 Git Bash 里一条命令搞定（等板上线 → 部署 → 监听 → �
 
 ```bash
 cd /c/OpenWiFi/tools
-bash one_click_collect.sh 11 25 C:/iq
-#   参数: [信道] [采集秒数] [输出目录]
+bash one_click_collect.sh 5 25 C:/iq
+#   参数: [信道] [采集秒数] [输出目录]（信道默认 ch5，信号更强）
 #   板子已部署过可加 --skip-deploy 跳过部署步骤
 ```
 
@@ -36,10 +36,10 @@ C:/Users/fawei/.workbuddy/binaries/python/versions/3.13.12/python.exe \
 
 ```bash
 scp /c/OpenWiFi/tools/e316_deploy.sh root@192.168.10.122:/tmp/
-ssh root@192.168.10.122 "sh /tmp/e316_deploy.sh 11"
+ssh root@192.168.10.122 "sh /tmp/e316_deploy.sh 5"
 ```
 
-> 参数 = 信道号（默认 11）。作用：修复 ADC 绑定 → 彻底重载模块 → monitor 模式 → 加载 side_ch。
+> 参数 = 信道号（默认 5，此频段信号更强）。作用：修复 ADC 绑定 → 彻底重载模块 → monitor 模式 → 加载 side_ch。
 > 板端命令直接在 Windows 执行（内置 OpenSSH 客户端；免密需一次性装公钥，见 §八）。
 
 #### ③ 板端：采集（紧跟监听窗口）

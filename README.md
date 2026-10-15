@@ -160,7 +160,7 @@ cd ~/MyOpenWiFi && ./setup.sh
 ```bash
 # 推荐：一键（Git Bash，Windows 侧）——等板 → 部署 → 监听 → 采集 → 收尾
 #       → 前导码解析 + 可视化报告（自动打开 report.html；--skip-viz 跳过）
-bash ~/tools/one_click_collect.sh 11 25 C:/iq
+bash ~/tools/one_click_collect.sh 5 25 C:/iq
 
 # 或两段式：板子 root@192.168.10.122，PC 侧 IP = 192.168.10.2（Windows「以太网 2」）
 python ~/tools/win_listen_iq.py C:/iq 60 --layout=iq_first   # ① 先启 Windows 监听
