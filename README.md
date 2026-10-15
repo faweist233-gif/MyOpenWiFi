@@ -107,6 +107,10 @@ cd ~/MyOpenWiFi && ./setup.sh
 | `wsl_listen_4000.py` | 旧：mirrored 时代的 WSL 侧 UDP 接收（现 NAT 拓扑下收不到，勿用） |
 | `build_sctl2.sh` | 交叉编译 `side_ch_ctl`（`-static`） |
 | `auto_ssh.py` | SSH 自动喂密码 |
+| `preamble_parse.py` | ★ **前导码解析器**：把采集到的 440 采样 IQ 块解析成 L-STF/L-LTF/L-SIG（参考 `~/Projects/usrp` 的 7 步流水线）→ frames.json/npz |
+| `preamble_plot.py` | ★ **前导码可视化**：8 张图 + HTML 报告（时间线/波形/频谱/信道/星座/CFO/RATE） |
+| `preamble_selftest.py` | 合成帧回环自检（18 项）+ `--demo` 生成无需板子的演示数据 |
+| `README-preamble.md` | 前导码解析/可视化工具的完整说明 |
 | `push_run.sh` / `wait_board.sh` / `udp_dump.py` | 辅助 |
 | `README-build-env.md` | 构建环境说明与 11 条踩坑记忆 |
 
@@ -165,6 +169,19 @@ python ~/tools/win_listen_iq.py C:/iq 60 --layout=iq_first   # ① 先启 Window
 
 > UDP 监听必须在 **Windows 侧**跑（现为 NAT 拓扑，`.2` 归 Windows「以太网 2」；
 > mirrored 时代的 `wsl_listen_4000.py` 已收不到，详见操作手册要点 4）。
+
+### 采集后：前导码解析与可视化
+
+```bash
+# ① 解析采集目录（自动找 iq_*.bin），输出 frames.json / frames.npz
+python ~/tools/preamble_parse.py C:/iq/iq_<stamp>
+
+# ② 生成图表与 HTML 报告（8 张图 + report.html）
+python ~/tools/preamble_plot.py --dir C:/iq/iq_<stamp>/preamble_analysis
+```
+
+方法参考 USRP 项目（`parse_preamble.py` 的 7 步流水线），并把板端 CSI 与
+phase_offset 作为独立旁证互相验证。详见 `tools/README-preamble.md`。
 
 ---
 

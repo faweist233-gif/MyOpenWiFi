@@ -41,3 +41,15 @@ Thumbs.db
 # 忽略工具链产出
 __pycache__/
 *.pyc
+
+# 忽略前导码解析工具的本地环境与产物
+.venv/
+.uvcache/
+.cachehome/
+.mplcache/
+.demo/
+preamble_analysis/
+frames.json
+frames.npz
+report.html
+fig_*.png
