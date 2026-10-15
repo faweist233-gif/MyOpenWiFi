@@ -11,7 +11,7 @@
 - `openwifi/AGENTS.md` 是该仓库对 AI agent 的约束文件（Conventional Commits、未经要求不得 commit/push 等），**先读并遵守**。
 - 目标板：AntSDR E316 → **BOARD_NAME 一律写 `e310v2`**（设备树 model 是 ANTSDR-E310V2）。Zynq-7020、32 位、Vivado/Vitis 2022.2、内核 ADI 2026_R1 (Linux 6.12)。
 - 当前工作机是 **macOS，不能做任何构建**。可做：改代码、scp。内核 `.ko` 与 FPGA 综合必须在 Linux x86_64 机器上（流程见二次开发指南 §4）。
-- 板卡访问：`ssh root@192.168.10.122`（密码 openwifi），宿主机有线网卡静态 IP `192.168.10.1`。side_ch 数据 UDP 发往 **目标 IP 的 4000 端口**。
+- 板卡访问：`ssh root@192.168.10.122`（密码 openwifi），宿主机（Windows「以太网 2」）静态 IP `192.168.10.2`。side_ch 数据 UDP 发往 **目标 IP 的 4000 端口**——目标必须显式 `-s 192.168.10.2`（`192.168.10.1` 是 VMnet1，发过去收不到）。
 - `openwifi-hw/ip/openofdm_rx/` 是**未检出的 git 子模块**（`./get_ip_openofdm_rx.sh` 拉取）。**本任务不需要检出**：改动全部在 `side_ch`，openofdm_rx 只是信号来源。
 - E316 关键宏：`SMALL_FPGA 1`、`SIDE_CH_LESS_BRAM 1`（side_ch 的 dpram/m_axis FIFO 深度从 8192 降为 **4096**）、`NUM_CLK_PER_US 100`（基带 100 MHz）。
 
@@ -102,12 +102,13 @@ side_ch_ctl：每 interval ms 轮询一次，把 netlink 载荷原样 sendto() �
 **IQ 模式**（`1+iq_len` 字/次）：
 ```
 [TSF(64b)][iq_len×采样字]
-  cfg bit0=0 时采样字 = {24b状态, 8b gpio_status, I16, Q16}
-    （第3个16bit: gpio_status——bit7 AGC lock、bit6:0 增益；第4个16bit: rssi_half_db 低11位
-      + b15 demod、b14 tx_rf、b13 fcs_ok；第2个16bit 的 b15 = ch_idle）
+  cfg bit0=0 时采样字（64b，低 32 位在前）= {I16, Q16, gpio_status16, rssi16}
+    （word0/1 = I/Q；word2 = gpio_status——bit7 AGC lock、bit6:0 增益；
+      word3 = rssi_half_db 低11位 + b15 demod、b14 tx_rf、b13 fcs_ok；word1 的 b15 = ch_idle）
   cfg bit0=1 时采样字 = {iq1(I16,Q16), iq0(I16,Q16)} 双天线
   TSF 锁存于触发时刻
 ```
+> 布局以 `user_space/side_ch_ctl_src/csi_iq_display.py` / `tools/win_listen_iq.py` 的实际解析为准（I/Q 在低 32 位）。
 解析参照：`user_space/side_ch_ctl_src/side_info_display.py`（CSI）、`iq_capture.py:59-82`（IQ）。
 
 ### 2.6 关键尺寸与时序数字（推参数用，全部要背下来）
@@ -283,7 +284,7 @@ FPGA:  cd openwifi-hw/boards/e310v2 && ../create_ip_repo.sh $XILINX_DIR
        → ../sdk_update.sh e310v2 $OPENWIFI_HW_IMG_DIR
        → openwifi/user_space/boot_bin_gen.sh $XILINX_DIR e310v2 <新xsa>
 驱动:  cd openwifi/driver && ./make_all.sh $XILINX_DIR 32
-上板:  scp system_top.bit.bin + *.ko → 板上 ./wgd.sh → 单独 insmod side_ch.ko ... → ./side_ch_ctl g10 -s 192.168.10.1
+上板:  scp system_top.bit.bin + *.ko → 板上 ./wgd.sh → 单独 insmod side_ch.ko ... → ./side_ch_ctl g10 -s 192.168.10.2
 ```
 不改寄存器地址/BD 拓扑 → **无需换 dtb/内核/烧 SD**，`wgd.sh` 热重载闭环（分钟到小时级）。
 回归纪律：板上 `./sdrctl dev sdr0 get reg xpu 63` 必须 == 新 openwifi-hw commit 前 7 位（bitstream↔.ko 配套验证）。
@@ -318,7 +319,7 @@ insmod side_ch.ko iq_len_init=400
 ./side_ch_ctl wh3h01            # iq_capture=1, 源=rx, 单天线+状态字
 ./side_ch_ctl wh11d240          # 覆盖 probe 硬编码的 8190（E316 会截断！）
 ./side_ch_ctl wh8d8             # 触发 = long_preamble_detected
-./side_ch_ctl g10 -s 192.168.10.1
+./side_ch_ctl g10 -s 192.168.10.2
 
 # 定向抓（只抓指定对端）：触发=addr 匹配，回溯盖住包起点
 ./side_ch_ctl wh7h<对端MAC低32位> && ./side_ch_ctl wh6h<本机MAC低32位>

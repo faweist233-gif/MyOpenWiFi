@@ -10,14 +10,16 @@
 
 ### 1.1 FPGA（`openwifi-hw/ip/side_ch/src/`）
 
+> 行号 = 应用本仓库 `patches/openwifi-hw-side_ch.patch`（基线 `openwifi-hw@d047d79`）之后的文件行号。
+
 | 文件 | 位置 | 内容 |
 |---|---|---|
-| `side_ch.v` | :367 附近 | 新增 `.csi_iq_combined(slv_reg3[1])` 端口映射 |
+| `side_ch.v` | :369 | 新增 `.csi_iq_combined(slv_reg3[1])` 端口映射 |
 | `side_ch_control.v` | 端口表 | 新增 `input wire csi_iq_combined` |
 | `side_ch_control.v` | :326-327 | 输出仲裁改 `side_info_iq_valid ? side_info_iq : side_info_csi`（串行化后双 valid 互斥） |
-| `side_ch_control.v` | :436/:479/:730 | 三处 `if (iq_capture==0)` → `if ((iq_capture==0)|csi_iq_combined)` |
-| `side_ch_control.v` | :704/:707 | CSI 小 FIFO：`.rst(...|(iq_capture&(~csi_iq_combined)))`、`.wr_en(...&((iq_capture==0)|csi_iq_combined))` |
-| `side_ch_control.v` | :295-303 | 新增 `record_len`（+1 位防回绕）与 `csi_commit_pulse` |
+| `side_ch_control.v` | :451/:494/:773 | 三处 `if (iq_capture==0)` → `if ((iq_capture==0)|csi_iq_combined)` |
+| `side_ch_control.v` | :747/:750 | CSI 小 FIFO：`.rst(...|(iq_capture&(~csi_iq_combined)))`、`.wr_en(...&((iq_capture==0)|csi_iq_combined))` |
+| `side_ch_control.v` | :299-306 | 新增 `record_len`（+1 位防回绕）与 `csi_commit_pulse` |
 | `side_ch_control.v` | 状态表/`iq_state` | IQ 状态加到 5 个（`IQ_WINDOW_LOCKED` 新增），`iq_state` 2→3 bit |
 | `side_ch_control.v` | IQ FSM | 联合分支：`long_preamble_detected` 锁窗（钉 `iq_raddr=iq_waddr-pre_trigger_len`），`csi_commit_pulse` 推数；纯 IQ 走原触发路径 |
 | `side_ch_control.v` | CSI `PREPARE_TO_M_AXIS` | 联合分支：空间检查改用 `record_len` + 等待 `iq_state∈{WAIT,LOCKED}`（保序 `[IQ][CSI]`） |
@@ -86,7 +88,7 @@ cd openwifi/driver && ./make_all.sh $XILINX_DIR 32     # 内含 side_ch/make_dri
 source $XILINX_DIR/Vivado/2022.2/settings64.sh
 cd openwifi-hw/ip/side_ch/unit_test/side_ch_control_tb
 mkdir -p ../pre_def && printf '`define SIDE_CH_LESS_BRAM 1\n' > ../pre_def/side_ch_pre_def.v
-vivado -mode batch -source side_ch_control_tb.tcl    # 输出应含 PASS
+vivado -mode batch -source side_ch_control_tb.tcl    # sim 输出应含 PASS（由 tb.v 的 $display 打出）
 ```
 
 ---
@@ -98,10 +100,10 @@ vivado -mode batch -source side_ch_control_tb.tcl    # 输出应含 PASS
 >
 > 实测与原流程的三点差异：
 > 1. **`wgd.sh` 在本板跑不完整**（`set -e` + `ad9361`/`mac80211` 为内核内建，`insmod` 返回非 0 触发 `set -e` 中断）→ 改**手动逐个 `insmod`**（见操作手册第二节）。
-> 2. **UDP 目标必须 `-s 192.168.10.2`**，不是 `.1`。本机是 WSL2 mirrored 网络，`192.168.10.2` 由 WSL `eth4` 持有，Windows 宿主 socket 收不到；监听器必须在 WSL 内跑。
+> 2. **UDP 目标必须 `-s 192.168.10.2`**，不是 `.1`（`.1` 是 VMnet1，发过去收不到）。现拓扑为 **NAT（关 mirrored）**：`192.168.10.2` 归 Windows「以太网 2」，**监听器在 Windows 侧跑**（`win_listen_iq.py`）；mirrored 时代在 WSL 内监听（`wsl_listen_4000.py`）已收不到（见操作手册要点 4）。
 > 3. **停止采集必须 `kill -INT`**（程序只注册 SIGINT），`timeout`/`| head` 会强杀进程导致 DMA 通道卡死。
 
-前置：板卡 `ssh root@192.168.10.122`（密码 openwifi），主机静态 IP `192.168.10.1`；已按标准步骤 `.xsa`/BOOT 更新过或只需热重载。
+前置：板卡 `ssh root@192.168.10.122`（密码 openwifi），PC 侧网卡（Windows「以太网 2」）IP `192.168.10.2`；已按标准步骤 `.xsa`/BOOT 更新过或只需热重载。
 
 ```bash
 # 1) 传文件
@@ -114,8 +116,8 @@ ssh root@192.168.10.122
 #    insmod xilinx_dma.ko
 #    for M in tx_intf rx_intf openofdm_tx openofdm_rx xpu sdr; do insmod $M.ko; done
 # 3) 单独加载 side_ch（必须在模块组加载之后）
-insmod /root/side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=<C1> combined_init=1
-#    <C1> = 定标常数（§5.1），首次可用 300 起步；实测联合采集用 256
+insmod /root/side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=256 combined_init=1
+#    pre_trigger_init = C1 定标常数（§5.1），本板实测 = 256
 # 4) monitor 模式（★ CSI 必须 monitor，不能用 ad-hoc）
 ip link set sdr0 down && iw dev sdr0 set type monitor && ip link set sdr0 up
 iw dev sdr0 set channel 11
@@ -133,10 +135,11 @@ cat /tmp/side.log
 ### 4.1 主机端接收
 
 ```bash
-# 必须在 WSL 内跑（Windows 侧收不到，见上文差异 2）；监听 4000：
-cd /mnt/c/OpenWiFi/tools && python3 wsl_listen_4000.py
-# 或使用完整解析器：
-python3 csi_iq_display.py 0 440 --ip 192.168.10.2
+# 必须在 Windows 侧跑（NAT 拓扑，WSL 内收不到，见上文差异 2）；监听 4000：
+python C:/OpenWiFi/tools/win_listen_iq.py C:/iq 60 --layout=iq_first
+# 或使用完整解析器（同样在 Windows 侧跑——NAT 下 WSL 网段是 172.23.x.x，绑不了 .2）：
+python csi_iq_display.py 0 440 --ip 192.168.10.2
+#   （脚本在本仓库 new-files/openwifi/user_space/side_ch_ctl_src/；setup.sh 后也拷入 ~/git/openwifi/user_space/side_ch_ctl_src/）
 #  参1 = num_eq（与 ko 一致，0=不带等化器）
 #  参2 = iq_len（与 ko 一致，440=非HT前导400+余量；HT 建议 720~1000）
 ```
@@ -147,13 +150,13 @@ python3 csi_iq_display.py 0 440 --ip 192.168.10.2
 
 ### 5.1 C1 定标流程（一次性）
 
-C1 = 从 `long_preamble_detected`（LTF 相关尖峰，采样 256~320）回退到包起点（L-STF 第 0 点）的采样数，与速率/包长无关，只随 `FFT_WIN_SHIFT`（openofdm_rx reg5）变化。
+C1 = 从 `long_preamble_detected`（LTF 相关尖峰，采样 256~320）回退到包起点（L-STF 第 0 点）的采样数，与速率/包长无关，只随 `FFT_WIN_SHIFT`（openofdm_rx reg5）变化。**本板实测 C1 = 256**（部署脚本/操作手册均用此值）。
 
 1. 回环定标：发射侧 `inject_80211` + `sdrctl dev sdr0 set reg xpu 1 1` 解静音；
-2. 采集一帧（pre_trigger_init=`P`），解析出 IQ 块前导；
+2. 采集一帧（pre_trigger_init=`P`，起步可用 256），解析出 IQ 块前导；
 3. 与已知 L-STF/L-LTF 波形互相关，得到实际偏移 `d`；
 4. 取正确 `C1 = P + d`；**采集与定标必须同一 FFT_WIN_SHIFT 配置**；
-5. 若非默认 300，重新 `insmod ... pre_trigger_init=<C1> ...`。
+5. 若得到的新 C1 ≠ 256，重新 `insmod ... pre_trigger_init=<C1> ...`（并同步修改部署脚本/操作手册的参数）。
 
 ### 5.2 板级复核清单（对拍开发文档 §7）
 
@@ -162,7 +165,7 @@ C1 = 从 `long_preamble_detected`（LTF 相关尖峰，采样 256~320）回退�
 □ 前导 IQ 与已知 L-STF/L-LTF 互相关峰在首采样处（对齐 = C1 正确）
 □ 过滤：改 wh1/wh6/wh7 后只出目标包；不匹配包零输出（UDP 无孤儿块）
 □ 双 TSF 配对：|tsf_iq - tsf_csi| ≤ 20 µs（脚本 WARNING 不出现）
-□ 压力：./side_ch_ctl g1 + iperf3 5 分钟；sdrctl get reg = sdr0? wh20 读 reg20 不长期贴 4096
+□ 压力：./side_ch_ctl g1 + iperf3 5 分钟；rh20 读 reg20 不长期贴 4096
 □ 与纯 CSI 模式对比：csi_iq_display 的 CSI 与 side_info_display.py 对同一包数值一致
 □ tcpdump 主机侧 TSF ↔ 记录双 TSF 抽查 20 包
 ```
@@ -171,7 +174,7 @@ C1 = 从 `long_preamble_detected`（LTF 相关尖峰，采样 256~320）回退�
 
 | 现象 | 排查 |
 |---|---|
-| 完全无记录 | `wh20` 读 reg20=0；确认 `combined_init=1`、`iq_len_init>0`、dma 通道、`g10` 在跑 |
+| 完全无记录 | `rh20` 读 reg20=0；确认 `combined_init=1`、`iq_len_init>0`、dma 通道、`g10` 在跑 |
 | 记录错位/长度异常 | record_len 四处一致性：RTL `record_len` / `RECORD_LEN` / `csi_iq_display` / tb golden 必须同值；`num_eq`/`iq_len` 与 ko 参数对齐 |
 | 前导不在预期位置 | FFT_WIN_SHIFT 变了导致 C1 漂移 → 重定标 |
 | 高包率丢块 | `g10`→`g1`；收紧 FC/addr 过滤；查 reg20 峰值 |

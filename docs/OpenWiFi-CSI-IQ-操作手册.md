@@ -35,19 +35,18 @@ C:/Users/fawei/.workbuddy/binaries/python/versions/3.13.12/python.exe \
 #### ② 板端：部署（约 15 秒）
 
 ```bash
-wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/OpenWiFi/tools && \
-  python3 auto_ssh.py openwifi scp e316_deploy.sh root@192.168.10.122:/tmp/ && \
-  python3 auto_ssh.py openwifi ssh root@192.168.10.122 "sh /tmp/e316_deploy.sh 11"'
+scp /c/OpenWiFi/tools/e316_deploy.sh root@192.168.10.122:/tmp/
+ssh root@192.168.10.122 "sh /tmp/e316_deploy.sh 11"
 ```
 
 > 参数 = 信道号（默认 11）。作用：修复 ADC 绑定 → 彻底重载模块 → monitor 模式 → 加载 side_ch。
+> 板端命令直接在 Windows 执行（内置 OpenSSH 客户端；免密需一次性装公钥，见 §八）。
 
 #### ③ 板端：采集（紧跟监听窗口）
 
 ```bash
-wsl.exe -d Ubuntu-22.04 -- bash -lc 'cd /mnt/c/OpenWiFi/tools && \
-  python3 auto_ssh.py openwifi scp e316_collect.sh root@192.168.10.122:/tmp/ && \
-  python3 auto_ssh.py openwifi ssh root@192.168.10.122 "sh /tmp/e316_collect.sh 25 192.168.10.2"'
+scp /c/OpenWiFi/tools/e316_collect.sh root@192.168.10.122:/tmp/
+ssh root@192.168.10.122 "sh /tmp/e316_collect.sh 25 192.168.10.2"
 ```
 
 > 参数 = 采集秒数（≥10）、PC IP。脚本已内置「采集前排空 FIFO」（第 3 参数排空秒数，默认 2s）。
@@ -68,12 +67,12 @@ Caught signal 2
 PC 侧（win_listen_iq.py 输出）：
 
 ```
-[win] 根目录已有 N 个历史产物目录（保留，不删除）
 [win] ★ 就绪：监听 0.0.0.0:4000  时长 60s
+[win] 产物目录: C:\iq\iq_20261010_101234
 [win] ... 30 包 / 223552 字节 / 56 record
 [win] ... 70 包 / 626744 字节 / 157 record
 [win] ===== 最终汇总 =====
-[win] record: 169  对齐: word 0
+[win] record: 169  对齐: (0, 64)
 ```
 
 ---
@@ -153,7 +152,19 @@ cat /tmp/side.log
 ### 7. 重启后 `sdr0` 可能不存在
 
 **真因**：开机 `Tuning TX FAILED` → `cf_axi_adc` probe 返回 -5 → 设备与驱动解绑，内核**不会自动重试**。  
-**修复**：`echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind`
+**修复**：
+```bash
+echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind
+```
+> 若 bind 后设备仍未出现（dmesg 报 `Failed to get converter device: -19`，ad9361 侧注册已陈旧），整链重绑：
+> ```bash
+> echo 79024000.cf-ad9361-dds-core-lpc > /sys/bus/platform/drivers/cf_axi_dds/unbind
+> echo spi0.0 > /sys/bus/spi/drivers/ad9361/unbind; sleep 1
+> echo spi0.0 > /sys/bus/spi/drivers/ad9361/bind; sleep 2
+> echo 79024000.cf-ad9361-dds-core-lpc > /sys/bus/platform/drivers/cf_axi_dds/bind
+> echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind
+> ```
+> `e316_deploy.sh` 的 STEP1 已内置这两级修复；修复后需重跑部署（sdr.ko 不会自动重新 probe）。
 
 ### 通道卡死的救援流程
 
@@ -222,9 +233,8 @@ for M in tx_intf rx_intf openofdm_tx openofdm_rx xpu sdr; do insmod $M.ko; done
 # WSL 内执行
 cd /mnt/c/OpenWiFi/tools && bash build_sctl2.sh
 # 产物: /mnt/c/OpenWiFi/build-output/side_ch_ctl_static
-# 部署:
-cd /mnt/c/OpenWiFi/tools && python3 auto_ssh.py openwifi scp \
-  /mnt/c/OpenWiFi/build-output/side_ch_ctl_static \
+# 部署（Windows 侧）:
+scp /mnt/c/OpenWiFi/build-output/side_ch_ctl_static \
   root@192.168.10.122:/root/openwifi/side_ch_ctl
 ```
 
@@ -271,8 +281,12 @@ cd /mnt/c/OpenWiFi/tools && python3 auto_ssh.py openwifi scp \
 
 ## 八、环境约束备忘
 
-- 板端命令经 WSL 执行：`wsl.exe -d Ubuntu-22.04 -- bash -lc '...'`
-- Windows 侧 Python **无 `pty` 模块**，`auto_ssh.py` 只能在 WSL 内跑
+- 板端命令直接在 **Windows**（Git Bash / PowerShell）执行：系统内置 OpenSSH 客户端（ssh/scp），无需 WSL
+- 免密：一次性把本机公钥装入板端（Git Bash 无密钥先 `ssh-keygen -t ed25519`；首次装公钥借道 WSL 的 `auto_ssh.py` 喂密码，之后不再需要）：
+  ```bash
+  wsl.exe -d Ubuntu-22.04 -- bash -lc "cd /mnt/c/OpenWiFi/tools && python3 auto_ssh.py openwifi ssh root@192.168.10.122 \"mkdir -p /root/.ssh; echo \$(cat ~/.ssh/id_ed25519.pub) >> /root/.ssh/authorized_keys; chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys\""
+  ```
+- Windows 侧 Python **无 `pty` 模块**，`auto_ssh.py` 只能在 WSL 内跑（仅用于上面的首次装公钥）
 - 推文件用 **scp**（base64 嵌套引号会丢内容）
 - `ad9361` / `mac80211` / `cf_axi_adc` 在此板为**内核内建**（`insmod ad9361_drv.ko` 失败无害）
 - `wgd.sh` 在本环境跑不完整（`set -e` + 内建模块）→ **改手动逐个 insmod**

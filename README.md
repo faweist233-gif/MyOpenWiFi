@@ -56,7 +56,7 @@ cd ~/MyOpenWiFi && ./setup.sh
 |---|---|
 | （无） | 完整流程：克隆 + 子模块 + patch + 工具 |
 | `--work-dir /opt/ow` | 指定工作目录（默认 `~/git`） |
-| `--skip-submodules` | 跳过 3.4GB 子模块（只做 FPGA 时可用） |
+| `--skip-submodules` | 跳过 3.4GB 的 adi-linux 等**全部三个子模块**（openofdm_rx / adi-hdl 也会被跳过）——只用于先浏览代码；之后可用 `tools/build_env.sh submodules` 补 openofdm_rx + adi-linux，FPGA 综合前还需手动 `git submodule update --init --depth 1 adi-hdl` |
 | `--patch-only` | 已有上游代码，只套 patch |
 
 > ⚠️ **代码必须放 Linux 文件系统**（`~/git`），**不要**放 `/mnt/c`。
@@ -70,15 +70,16 @@ cd ~/MyOpenWiFi && ./setup.sh
 
 | 文件 | 内容 |
 |---|---|
-| `openwifi-side_ch.patch` | 驱动 `side_ch.c/h` 联合采集逻辑 + `build_boot_bin.sh` 无显示修复 |
+| `openwifi-side_ch.patch` | 驱动 `side_ch.c/h` 联合采集逻辑 + `side_ch_ctl.c` 行缓冲 + `build_boot_bin.sh` 无显示修复 |
 | `openwifi-hw-side_ch.patch` | RTL `side_ch_control.v`/`side_ch.v` 联合模式 + 构建脚本批量模式修复 |
 
 改动清单（vs 上游）：
 
 | 文件 | 类型 |
 |---|---|
-| `driver/side_ch/side_ch.c` | 源码 —— 模块参数 `pre_trigger_init`/`combined_init`、`RECORD_LEN` 分支、E316 FIFO 钳制 |
-| `driver/side_ch/side_ch.h` | 源码 —— `CSI_BLK_LEN`/`RECORD_LEN` 宏 |
+| `driver/side_ch/side_ch.c` | 源码 —— 模块参数 `pre_trigger_init`/`combined_init`、`RECORD_LEN` 分支、E316 FIFO 钳制、DMA cookie==0 放行（WARNING 修复）、`IS_ERR_OR_NULL`/`terminate_sync` 安全释放 |
+| `driver/side_ch/side_ch.h` | 源码 —— `CSI_BLK_LEN`/`RECORD_LEN`/`SIDE_CH_M_AXIS_FIFO_DEPTH` 宏 |
+| `user_space/side_ch_ctl_src/side_ch_ctl.c` | 源码 —— `main()` 加 `setvbuf` 行缓冲（静态二进制重定向"无输出"修复） |
 | `ip/side_ch/src/side_ch_control.v` | 源码 —— 联合模式仲裁、IQ FSM、`record_len` 防回绕 |
 | `ip/side_ch/src/side_ch.v` | 源码 —— `csi_iq_combined` 端口映射 |
 | `kernel_boot/build_boot_bin.sh` | 构建 —— `xsct` 加 `-nodisp`（无显示环境必需） |
@@ -99,9 +100,11 @@ cd ~/MyOpenWiFi && ./setup.sh
 | 文件 | 用途 |
 |---|---|
 | `build_env.sh` | ★ 构建环境一站式（子模块/Vitis/内核/驱动/FPGA/license） |
+| `one_click_collect.sh` | ★ 一键采集（等板→部署→Windows 监听→采集→收尾，Git Bash 跑） |
+| `win_listen_iq.py` | ★ PC 侧 UDP 接收 + 自对齐解析（**Windows 侧跑**，NAT 拓扑；`--layout=iq_first`） |
 | `e316_deploy.sh` | 板端部署（ADC 修复 + 重载模块 + monitor + side_ch） |
 | `e316_collect.sh` | 板端采集（SIGINT 收尾 + 推 UDP） |
-| `wsl_listen_4000.py` | PC 侧 UDP 接收（必须在 WSL/Linux 内跑） |
+| `wsl_listen_4000.py` | 旧：mirrored 时代的 WSL 侧 UDP 接收（现 NAT 拓扑下收不到，勿用） |
 | `build_sctl2.sh` | 交叉编译 `side_ch_ctl`（`-static`） |
 | `auto_ssh.py` | SSH 自动喂密码 |
 | `push_run.sh` / `wait_board.sh` / `udp_dump.py` | 辅助 |
@@ -151,11 +154,17 @@ cd ~/MyOpenWiFi && ./setup.sh
 ### 板端部署与采集
 
 ```bash
-# 板子 root@192.168.10.122，PC 侧 PC IP = 192.168.10.2
-python3 ~/tools/wsl_listen_4000.py                                    # 先启监听
-~/tools/e316_deploy.sh 11                                             # 板端部署
-~/tools/e316_collect.sh 25 192.168.10.2                               # 板端采集
+# 推荐：一键（Git Bash，Windows 侧）——等板 → 部署 → 监听 → 采集 → 收尾
+bash ~/tools/one_click_collect.sh 11 25 C:/iq
+
+# 或两段式：板子 root@192.168.10.122，PC 侧 IP = 192.168.10.2（Windows「以太网 2」）
+python ~/tools/win_listen_iq.py C:/iq 60 --layout=iq_first   # ① 先启 Windows 监听
+~/tools/e316_deploy.sh 11                                    # ② 板端部署
+~/tools/e316_collect.sh 25 192.168.10.2                      # ③ 板端采集
 ```
+
+> UDP 监听必须在 **Windows 侧**跑（现为 NAT 拓扑，`.2` 归 Windows「以太网 2」；
+> mirrored 时代的 `wsl_listen_4000.py` 已收不到，详见操作手册要点 4）。
 
 ---
 
@@ -188,8 +197,7 @@ patch 涉及的都是**独立改动块**，冲突概率低；即使有冲突，�
 | 板端 SSH 部署 | ✅（需 WSL 或 PuTTY） | ✅ |
 | UDP 接收监听 | ⚠️ 见下 | ✅ |
 
-> **Windows 侧 UDP 收不到包**：WSL2 `mirrored` 网络下，板子发往 `192.168.10.2` 的包进入 WSL 命名空间，
-> Windows 宿主 socket 收不到。**监听器必须在 WSL 内跑**。
+> **Windows 侧 UDP 收不到包（历史）**：仅在 WSL2 `mirrored` 网络模式下成立——板子发往 `192.168.10.2` 的包进入 WSL 命名空间，Windows 宿主 socket 收不到。**现拓扑已改为 NAT（关 mirrored）**，`.2` 归 Windows「以太网 2」独占，监听器必须在 **Windows 侧**跑（`win_listen_iq.py`），WSL 内反而收不到。
 
 ---
 

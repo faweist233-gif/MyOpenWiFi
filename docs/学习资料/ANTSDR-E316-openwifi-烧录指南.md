@@ -20,7 +20,7 @@
 
 ⚠️ **不要用 `antsdr`**。那是老 E310 的板名；E310V2 的设备树 model 是 `ANTSDR-E310V2`，`setup_once.sh` 靠这个字符串选板，选错会加载错误的 bitstream / 驱动。
 
-Zynq-7020 属于小器件，**该板卡在 openwifi 官方列表里标注 Vivado License "NO need"**。
+Zynq-7020 属于小器件，**该板卡在 openwifi 官方列表里标注 Vivado License "NO need"**——这是指 Vivado 工具本身在免费版（WebPACK）覆盖范围内；**综合 openofdm_rx 仍需要 Viterbi IP 的评估 license**（见 `Viterbi-License-申请与安装清单.md`），两者不要混淆。
 
 ---
 
@@ -95,9 +95,9 @@ diskutil eject /dev/disk4
 
 1. **启动模式 DIP**：开关在网口下方，丝印 `BOOT / QSPI / SD`，拨到 **SD**。
 2. **网线**接板上 RJ45，另一端接 PC 的千兆口。
-3. **PC 网卡设静态 IP**（macOS，网卡名换成你自己的，`ifconfig` 查）：
+3. **PC 网卡设静态 IP**（macOS，网卡名换成你自己的，`ifconfig` 查；Windows 侧本机为「以太网 2」`192.168.10.2`）：
    ```bash
-   sudo ifconfig en7 inet 192.168.10.1 netmask 255.255.255.0
+   sudo ifconfig en7 inet 192.168.10.2 netmask 255.255.255.0
    ```
 4. **天线 2 根**：`TX/RX1` 一根、`RX1` 一根（见下方天线接线表）。
 5. 上电，等约 40 秒。
@@ -180,7 +180,7 @@ sudo ip route add 192.168.13.0/24 via 192.168.10.122 dev <连板网卡>
 
 ### A7.（可选，推荐）把 FPGA + 驱动升到最新
 
-1.5.0 镜像里的 bitstream / 内核模块是 2025-08 的。要跟 master 同步，需要一台 **Linux x86_64 主机 + Vivado/Vitis 2021.1**（只用其中的 `bootgen`，不需要重新综合 FPGA）：
+1.5.0 镜像里的 bitstream / 内核模块是 2025-08 的。要跟 master 同步，需要一台 **Linux x86_64 主机 + Vivado/Vitis 2022.2**（只用其中的 `bootgen`，不需要重新综合 FPGA）：
 
 ```bash
 git clone https://github.com/open-sdr/openwifi-hw-img
@@ -281,11 +281,11 @@ iw dev
 | SD 卡要求 | ≥16 GB（路线 A）/ 任意（路线 B） |
 | 需覆盖的 BOOT 文件 | `BOOT.BIN`、`devicetree.dtb`、`system_top.bit.bin` |
 | 板子登录 | `root` / `openwifi`，管理口 `192.168.10.122/24` |
-| PC 侧管理 IP | `192.168.10.1` |
+| PC 侧管理 IP | `192.168.10.2`（Windows「以太网 2」；`.1` 是 VMnet1，UDP 发过去收不到） |
 | AP 网段 / 网页 | `192.168.13.0/24` / `192.168.13.1` |
 | 串口 | 115200 8N1 |
 | 内核架构位宽 `ARCH_BIT` | `32`（Zynq-7000） |
-| Vivado 授权 | 不需要 |
+| Vivado 授权 | 工具本身不需要（7z020 在免费版内）；**综合需要 Viterbi IP 评估 license** |
 
 ---
 

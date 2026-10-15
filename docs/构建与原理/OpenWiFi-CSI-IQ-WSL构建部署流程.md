@@ -39,10 +39,10 @@
 
 | 产物 | 从哪来 | 干什么 |
 |---|---|---|
-| `system_top.bit.bin` | FPGA 综合 → boot_bin_gen | 新 bitstream（含联合模式 side_ch） |
+| `system_top.bit.bin` | FPGA 综合 → boot_bin_gen | 新 bitstream（含联合模式 side_ch），热重载用 |
 | `*.ko`（7 个，含 `side_ch.ko`） | `make_all.sh 32` 交叉编译 | 与新版 bitstream 配套的驱动 |
 
-**不重编**：内核 `uImage`、`.dtb`、`BOOT.BIN`、SD 镜像——这些沿用板上现有的。所以流水线只有两条，耗时：**驱动分钟级，FPGA 1–3 小时**。
+**不重编/不重烧**：内核 `uImage`、`.dtb`、SD 镜像——这些沿用板上现有的。`boot_bin_gen.sh` 会顺带产出 `BOOT.BIN`（在 `openwifi/kernel_boot/boards/e310v2/output_boot_bin/`），但热重载只用到 `system_top.bit.bin`，BOOT.BIN 无需烧写。所以流水线只有两条，耗时：**驱动分钟级，FPGA 1–3 小时**。
 
 ```
 WSL2(Ubuntu 22.04)
@@ -119,7 +119,7 @@ Vivado 的综合、`xsct`、`bootgen`、交叉编译 `settings64.sh` 全都要 *
 
 **3.1 下载 Linux 版安装包**
 
-从 AMD/Xilinx 官网（需登录）下载 **Vivado & Vitis 2022.2 - Linux 自解压安装包**（`Xilinx_Unified_2022.2_1014_2254_Lin64.bin`，约 100+ GB 在线安装器或 ~123 GB 完整 DVD 镜像。可只装 Vitis 组件）。
+从 AMD/Xilinx 官网（需登录）下载 **Vivado & Vitis 2022.2 - Linux** 安装包：在线安装器（`Xilinx_Unified_2022.2_1014_2254_Lin64.bin`）约 300 MB（边下边装，实际占用 ~100 GB+），完整离线 DVD 镜像约 123 GB。可只装 Vitis 组件。
 
 **3.2 安装**
 
@@ -128,12 +128,14 @@ chmod +x Xilinx_Unified_2022.2_1014_2254_Lin64.bin
 sudo mkdir -p /opt/Xilinx
 ```
 
-* 方式 A（批处理，推荐）——先写安装配置 `vivado_install_config.txt`：
+* 方式 A（批处理，推荐）——推荐直接用 `tools/build_env.sh vitis-cfg && tools/build_env.sh vitis`（配置模板已踩坑修正）；手写安装配置时注意：
+
+> ★ 踩坑：`Edition` 键名必须是 **`Vitis Unified Software Platform`**，写 `Vitis 2022.2` 安装器不认（invalid edition）。详见 `tools/README-build-env.md` 踩坑 2。
+
 ```
-Edition=Vitis 2022.2
-Modules=Vitis
-InstallPath=/opt/Xilinx
-AcceptLicenseAgreements=true
+Edition=Vitis Unified Software Platform
+Product=Vitis
+Destination=/opt/Xilinx
 ```
 然后：
 ```bash
@@ -175,12 +177,14 @@ git clone https://github.com/open-sdr/openwifi-hw-img.git    # $OPENWIFI_HW_IMG_
 cd openwifi-hw
 ./get_ip_openofdm_rx.sh        # 拉 openofdm_rx 子模块（system.bd 依赖，缺了综合不过）
 cd ../openwifi
-git submodule update --init adi-linux       # 内核源码树(6.12)，大（约 2-3 GB）
+git submodule update --init adi-linux       # 内核源码树(6.12)，约 3.4 GB（setup.sh 口径）
 ```
 
 > 若 `adio-linux` 拉得慢，可 `git submodule update --init --depth 1 adi-linux` 再按 §5 完整 checkout。
 
 **4.2 把你的改动搬进 WSL**
+
+> ★ 本仓库已提供 `patches/` + `new-files/`，`./setup.sh` 会自动套用，无需下面的手工搬运流程。
 
 你 Mac 工作区（`/Users/juicy/Projects/OpenWiFi/`）里有两个仓库没提交的改动。**任选一种**：
 
@@ -262,10 +266,11 @@ cd openwifi-hw/boards
 # 7.4 出 bit.bin（bootgen 把 .bit → .bit.bin）
 cd openwifi/user_space
 ./boot_bin_gen.sh $XILINX_DIR e310v2 $OPENWIFI_HW_IMG_DIR/boards/e310v2/sdk/system_top.xsa
-ls -la system_top.bit.bin BOOT.BIN        # 在 openwifi/user_space/ 下
+ls -la system_top.bit.bin       # 在 openwifi/user_space/ 下（热重载用这个）
+ls -la ../kernel_boot/boards/e310v2/output_boot_bin/   # BOOT.BIN 被 boot_bin_gen.sh 移到此处
 ```
 
-> 综合第一步要升/编子 IP 很慢（只一次）。`impl_1` 用了 `-jobs 8`（70 系列可到 8）。
+> 综合第一步要升/编子 IP 很慢（只一次）。`impl_1` 的并行度：**本仓库补丁已把 `openwifi.tcl` 改为 `-jobs 3`**（防 WSL 内存 OOM，见 README 改动清单）；若用未打补丁的上游文件则写死 `-jobs 8`，8G 内存 WSL 有 OOM 风险。
 > 若中途失败先看 `synth.log`；常见是 license 未加载（Viterbi）、缺库、或 `openofdm_rx` 子模块没拉。
 
 ---
@@ -291,25 +296,25 @@ cd ~/openwifi && ./wgd.sh
 ./sdrctl dev sdr0 get reg xpu 63
 
 # 8.4 单独加载联合模式 side_ch（wgd.sh 不装它）
-insmod ./side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=300 combined_init=1
-#    ↑ <C1> 定标常数：首次用 300，之后按部署文档 §5.1 定标修正；必须与采集同 FFT_WIN_SHIFT
+insmod ./side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=256 combined_init=1
+#    ↑ pre_trigger_init = C1 定标常数（本板实测 256，见部署文档 §5.1）；必须与采集同 FFT_WIN_SHIFT
 
 # 8.5 可选：地址过滤（allow-all 默认即 probe 设好）
 #     只抓指定对端:  ./side_ch_ctl wh1h6001 && ./side_ch_ctl wh7h<对端MAC低32位>
 
-# 8.6 开始 UDP 推送（目标 = 你的接收 PC 的静态 IP 192.168.10.1）
-./side_ch_ctl g10 -s 192.168.10.1
+# 8.6 开始 UDP 推送（目标 = 你的接收 PC 的静态 IP 192.168.10.2，Windows「以太网 2」）
+./side_ch_ctl g10 -s 192.168.10.2
 ```
 
 > 可替代：`cd openwifi/user_space && ./drv_and_fpga_package_gen.sh $OPENWIFI_HW_IMG_DIR $XILINX_DIR e310v2` 一次打出 `drv_and_fpga.tar.gz`，`scp` 到板上后 `./wgd.sh drv_and_fpga.tar.gz`。
 
 ---
 
-## 9. 接收验证（你的 PC = 192.168.10.1）
+## 9. 接收验证（你的 PC = 192.168.10.2）
 
 ```bash
-# 需要 numpy/matplotlib
-python3 csi_iq_display.py 0 440 --ip 192.168.10.1
+# 需要 numpy/matplotlib；在 Windows 侧跑（NAT 下 WSL 网段是 172.23.x.x，绑不了 .2）
+python csi_iq_display.py 0 440 --ip 192.168.10.2
 ```
 
 逐条对《开发文档 §7》的板级清单：
@@ -317,7 +322,7 @@ python3 csi_iq_display.py 0 440 --ip 192.168.10.1
 - 前导 IQ 与已知 L-STF/L-LTF 互相关峰在首采样处（C1 正确）；
 - 过滤只出目标包；不匹配包零输出；
 - 双 TSF 差距 ≤ 20 µs（脚本不报 WARNING）；
-- 压力：`g1` + iperf3 5 分钟，`wh20` 读 reg20 不长期贴 4096；
+- 压力：`g1` + iperf3 5 分钟，`rh20` 读 reg20 不长期贴 4096；
 - `tcpdump` TSF 与记录双 TSF 三方对齐抽查。
 
 ---
@@ -331,7 +336,7 @@ python3 csi_iq_display.py 0 440 --ip 192.168.10.1
 | 综合 license 报错（Viterbi） | `export XILINX_LIC_FILE=<.lic>` 没生效；或 .lic 没下 |
 | 综合卡在子 IP 很久 | 正常，首次编子 IP 最慢；`tail -f synth.log` 看进度 |
 | `/mnt/c` 下构建巨慢 / git 报错 | 把仓库移到 `~/git`（§1 铁律） |
-| WSL 连不上 192.168.10.122 | WSL2 NAT 所致；部署一律走 Windows 侧 scp/ssh（§8），或开 mirrored（§10.1） |
+| WSL 能连板子（192.168.10.122）吗 | 能——WSL2 NAT 经 Windows 主机路由即可 ping/ssh 板子（`auto_ssh.py` 部署/采集正是经 WSL 走的）；只是 WSL 绑不了 `.2`，**UDP 监听必须在 Windows 侧**（§8） |
 | 板上 `sdrctl get reg xpu 63` 与期望不符 | bitstream 与 .ko 不配套，重打包重发（§8） |
 
 **10.1 （可选）开 WSL2 mirrored 网络，让 WSL 也能直连板子**
@@ -355,7 +360,7 @@ networkingMode=mirrored
 | `prepare_kernel.sh 32`（一次） | 30–60 min | adi-linux 6.12 可编树 |
 | `make_all.sh $XILINX_DIR 32` | 几分钟（增量） | 7 个 `.ko` |
 | `create_ip_repo`→`openwifi.tcl` 综合 | **1–3 h** | `system_top.bit` → `system_top.bit.bin` |
-| `sdk_update` + `boot_bin_gen` | ~10 min | `system_top.bit.bin`、`BOOT.BIN` |
+| `sdk_update` + `boot_bin_gen` | ~10 min | `system_top.bit.bin`（user_space/）、`BOOT.BIN`（kernel_boot/boards/e310v2/output_boot_bin/，无需烧写） |
 | scp + wgd.sh + insmod + 验证 | ~20 min | 板上联合采集开跑 |
 
 **别搞错的两点**

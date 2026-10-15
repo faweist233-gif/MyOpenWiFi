@@ -3,18 +3,18 @@
 ## 状态
 ✅ **端到端全链路打通并多次复现验证**（2026-10-10）
 
-空口 802.11 帧 → `sdr0` monitor → `side_ch` DMA 采集 → UDP:4000 → PC（WSL）完整到达。
+空口 802.11 帧 → `sdr0` monitor → `side_ch` DMA 采集 → UDP:4000 → PC（Windows 侧）完整到达。
 
 ## 马上开始
 
-👉 **[OpenWiFi-CSI-IQ-操作手册.md](OpenWiFi-CSI-IQ-操作手册.md)** —— 两段式命令，复制即可跑
+👉 **[OpenWiFi-CSI-IQ-操作手册.md](OpenWiFi-CSI-IQ-操作手册.md)** —— 一键 / 两段式命令，复制即可跑
 
 ```bash
 # 工作环境准备（首次）：在仓库根执行
 ./setup.sh
 
-# ① PC 侧起监听（WSL/Linux 内，常驻）
-python3 ~/tools/wsl_listen_4000.py
+# ① PC 侧起监听（Windows 侧跑，NAT 拓扑；WSL 内收不到）
+python ~/tools/win_listen_iq.py C:/iq 60 --layout=iq_first
 # ② 板端部署
 ~/tools/e316_deploy.sh 11
 # ③ 板端采集
@@ -39,9 +39,7 @@ python3 ~/tools/wsl_listen_4000.py
 |---|---|
 | [学习资料/OpenWiFi-接收链路入门资料.md](学习资料/OpenWiFi-接收链路入门资料.md) | mac80211 框架与帧转发机制 |
 | [学习资料/OpenWiFi-二次开发指南.md](学习资料/OpenWiFi-二次开发指南.md) | 二次开发上手 |
-| [学习资料/OpenWiFi-二次开发指南-核对报告.md](学习资料/OpenWiFi-二次开发指南-核对报告.md) | 指南与源码核对 |
 | [学习资料/ANTSDR-E316-openwifi-烧录指南.md](学习资料/ANTSDR-E316-openwifi-烧录指南.md) | SD 卡镜像、dd 写盘、bitstream 加载 |
-| [学习资料/ANtsDR-E316-联合采集-人工执行清单.md](学习资料/ANtsDR-E316-联合采集-人工执行清单.md) | 人工逐步执行清单 |
 | [学习资料/Viterbi-License-申请与安装清单.md](学习资料/Viterbi-License-申请与安装清单.md) | Xilinx Viterbi 评估 license |
 
 ## 问题定位
@@ -57,8 +55,9 @@ python3 ~/tools/wsl_listen_4000.py
 | 项 | 值 |
 |---|---|
 | 板子 IP | `192.168.10.122` |
-| PC IP（WSL `eth4`） | `192.168.10.2` |
+| PC IP（Windows「以太网 2」） | `192.168.10.2`（VMnet1 = `.1`，发过去收不到） |
 | UDP 端口 | `4000` |
+| 监听器 | `win_listen_iq.py --layout=iq_first`（Windows 侧跑；`wsl_listen_4000.py` 为 mirrored 时代的旧工具） |
 | side_ch 加载参数 | `iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=256` |
 | 记录长度 | `RECORD_LEN(440,0) = 499` |
 | UDP 包长 | 3992 的整数倍（3992 = 499×8） |
@@ -66,7 +65,7 @@ python3 ~/tools/wsl_listen_4000.py
 ## 最容易踩的三个坑
 
 1. **停止 `side_ch_ctl` 必须用 `kill -INT`**，`timeout`（SIGTERM）或 `| head` 会永久卡死 DMA 通道
-2. **UDP 监听必须跑在 WSL/Linux 内**，Windows 侧收不到（mirrored 网络模式）
-3. **`sdr0` 不创建**时，执行 `echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind`
+2. **UDP 监听必须跑在 Windows 侧**（`win_listen_iq.py`）：现拓扑为 NAT（关 mirrored），`.2` 归 Windows「以太网 2」；mirrored 时代的 WSL 监听（`wsl_listen_4000.py`）已收不到
+3. **`sdr0` 不创建**时，执行 `echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind`；若仍不出现（dmesg 报 `Failed to get converter device: -19`）需整链重绑 ad9361→dds→adc（`e316_deploy.sh` STEP1 已内置，见操作手册要点 7）
 
 详见操作手册「★ 七个必知要点」。构建环境另有 11 条踩坑，见 `tools/README-build-env.md`。

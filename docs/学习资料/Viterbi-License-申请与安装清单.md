@@ -107,7 +107,7 @@ The FlexNet host ID of this machine is ""7cb27db968c4 00155d9d9a47 005056c00008 
 
 ---
 
-## 三、申请步骤（7 步）
+## 四、申请步骤（7 步）
 
 ### Step 1 — 打开产品页
 ```
@@ -158,7 +158,7 @@ sudo chmod +x /etc/profile.d/xilinx-license.sh
 
 ---
 
-## 四、验证 license 是否生效
+## 五、验证 license 是否生效
 
 ```bash
 source /opt/Xilinx/Vivado/2022.2/settings64.sh
@@ -188,7 +188,7 @@ Upgrade Log: SUCCESS from (Rev. 10) to (Rev. 13)
 
 ---
 
-## 五、license 到位后的后续步骤
+## 六、license 到位后的后续步骤
 
 ```bash
 # 1. 重新生成 IP repo（约 20 分钟）
@@ -199,7 +199,7 @@ export XILINXD_LICENSE_FILE=/opt/Xilinx/licenses/Xilinx.lic
 vivado -mode batch -nolog -nojournal -source ../ip_repo_gen.tcl
 
 # 2. 完整 Vivado 综合 + 实现（1-3 小时）
-bash /home/faweist/run_vivado_synth.sh
+~/tools/build_env.sh synth        # 历史脚本 run_vivado_synth.sh 已合并进 build_env.sh
 
 # 3. 导出 XSA 后更新 SDK
 cd ~/git/openwifi-hw/boards
@@ -216,17 +216,17 @@ cd ~/git/openwifi/user_space
 
 ---
 
-## 六、已知限制
+## 七、已知限制
 
 | 限制 | 说明 | 应对 |
 |---|---|---|
 | 板上运行 ~2 小时后停摆 | 评估 license 的时间限制，Viterbi 解码器停止工作 | 重载 FPGA bitstream 或断电重启（`openwifi/README.md:116`） |
 | 有效期 120 天 | 2026-10-08 → 2027-02-06 | 到期前重新走一次申请流程（可无限次续期） |
-| license 绑定 MAC | MAC 变了 license 失效 | **不要**改回 `networkingMode=nat` |
+| license 绑定 MAC | MAC 变了 license 失效 | 注意：联合采集后来把 WSL 改回了 **NAT**（mirrored 关闭，见操作手册要点 4）。NAT 下 eth0 MAC 会变，**综合前**需临时 `sudo ip link set eth0 address <绑定MAC>`（WSL 重启后失效，见 README §四），或重新申请绑定新 MAC |
 
 ---
 
-## 七、当前环境快照
+## 八、当前环境快照（2026-10-09 时点）
 
 ```
 WSL 发行版     : Ubuntu-22.04
@@ -238,12 +238,3 @@ license 文件   : /opt/Xilinx/licenses/Xilinx.lic  ✔ 已安装
 网络模式       : mirrored（.wslconfig）
 物理网卡 MAC   : 7C-B2-7D-B9-68-C4 (Intel Wireless-AC 9560)
 ```
-
-待办勾选：
-- [x] 申请 license（填入 MAC `7C-B2-7D-B9-68-C4`）
-- [x] 下载 `.lic` 文件
-- [x] 安装到 `/opt/Xilinx/licenses/` 并设环境变量
-- [x] 验证 license 生效（`IS_LOCKED = 0`）
-- [ ] 改 xci 器件为 xc7z020（**已完成**，待最终确认）
-- [ ] 重跑 ip_repo_gen（**进行中**）
-- [ ] 跑完整综合

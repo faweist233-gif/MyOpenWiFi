@@ -321,7 +321,7 @@ args = parser.parse_args()
 RECORD_LEN = (1+args.iq_len) + (2+56+args.num_eq*52)
 MAX_NUM_DMA_SYMBOL = 8192
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('192.168.10.1', 4000))
+sock.bind(('192.168.10.2', 4000))
 
 while True:
     data, addr = sock.recvfrom(MAX_NUM_DMA_SYMBOL*8)
@@ -365,7 +365,7 @@ FPGA:  cd openwifi-hw/boards/e310v2 && ../create_ip_repo.sh $XILINX_DIR
        → openwifi/user_space/boot_bin_gen.sh $XILINX_DIR e310v2 <新xsa>
 驱动:  cd openwifi/driver && ./make_all.sh $XILINX_DIR 32
 上板:  scp system_top.bit.bin + *.ko → ./wgd.sh → 单独 insmod side_ch.ko ... 
-       → ./side_ch_ctl g10 -s 192.168.10.1
+       → ./side_ch_ctl g10 -s 192.168.10.2
 自检:  sdrctl dev sdr0 get reg xpu 63 == 新 openwifi-hw commit 前 7 位
 ```
 

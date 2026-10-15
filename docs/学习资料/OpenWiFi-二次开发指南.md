@@ -266,7 +266,7 @@ iw dev sdr0 set bitrates legacy-5 6 12 24 # 速率
 | 5 | （可选）`openwifi/driver/xpu/xpu.c` | 暴露给 `sdrctl`：在 `sdrctl_intf.c` 加 `OPENWIFI_CMD_*`，在 `user_space/sdrctl_src/cmd.c` 加 `COMMAND(...)` |
 | 6 | 编译 | 见 §4 |
 
-**闭环时间**：单 IP 打包 + 顶层综合实现 **1–3 小时**（7020 小片，`impl_1` 用 8 jobs）。所以：
+**闭环时间**：单 IP 打包 + 顶层综合实现 **1–3 小时**（7020 小片；上游 `openwifi.tcl` 的 `impl_1` 写死 `-jobs 8`，本仓库补丁已改为 `-jobs 3` 防 WSL 内存 OOM）。所以：
 
 > **先跑 IP 级仿真再综合。** `ip/xpu/unit_test/`、`ip/rx_intf/unit_test/`、`ip/openofdm_tx/unit_test/` 下都有 testbench 和 `test_vec/` 激励。
 > ```
@@ -490,7 +490,7 @@ cd openwifi-hw/boards/e310v2
 
 1. 重建 `boards/e310v2/ip_repo/`，生成本板的所有宏文件（`clock_speed.v`、`has_side_ch_flag.v`、`fpga_scale.v`、`board_def.v`、`spi_command.v`、`openwifi_hw_git_rev.v`），**逐份拷进六个 IP 的 `src/`**
 2. 对 `openofdm_rx openofdm_tx rx_intf tx_intf xpu side_ch` 依次走 `package_ip_complex.tcl` 打包成 `ip_repo/<ip>/`
-3. `source ../openwifi.tcl` → 建 `openwifi_e310v2` 工程、`update_ip_catalog`、`launch_runs impl_1 -to_step write_bitstream -jobs 8`、`write_hw_platform -fixed -include_bit -o ./openwifi_e310v2/system_top.xsa`
+3. `source ../openwifi.tcl` → 建 `openwifi_e310v2` 工程、`update_ip_catalog`、`launch_runs impl_1 -to_step write_bitstream -jobs 8`（上游写死 `-jobs 8`；本仓库补丁改为 `-jobs 3`）、`write_hw_platform -fixed -include_bit -o ./openwifi_e310v2/system_top.xsa`
 
 > ⚠️ `openwifi.tcl` 里有 `exec git clean -dxf ./src/` —— **放在 `boards/e310v2/src/` 下没提交的东西会被删掉**。改 `system_top.v`/`system.bd`/`system.xdc` 后务必先 commit。
 
