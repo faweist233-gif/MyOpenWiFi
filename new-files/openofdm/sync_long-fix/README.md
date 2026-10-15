@@ -32,6 +32,12 @@
 - `run_sim_matrix.sh` —— 对「原版(sync_long.v.orig)」与「修复版」各跑 6 组（含 default），
   汇总每例的长前导检测次数 + L-SIG 解码结果到 `summary.txt`（WSL 内后台运行）
 - `launch_sim.sh` —— WSL 内 nohup+setsid 脱钩启动矩阵
+- `run_one.sh` + `sim_loop.ps1` —— **崩溃容错版**（推荐）：Windows 侧 PowerShell 循环逐例调用
+  `wsl ... run_one.sh`，结果写 NTFS 的 `sim_summary.txt`；WSL 虚拟机崩溃/重启自动重试。
+
+⚠️ 环境要点（2026-10-15 实测）：SSH 测试机可用内存 <5GB，WSL2 无内存上限（默认吃 8GB）
+时 vvp 一加压虚拟机就崩溃重启（uptime 归零）。已在 `C:\Users\fawei\.wslconfig` 加
+`memory=4GB / swap=4GB` 解决；跑 Vivado 综合时若 OOM 再临时调大。
 
 判据：default/weak1/cfo80k 修复版应检出且 L-SIG 解出；noise **必须零检出**；weak2 观察边界。
 已测基线：default 刺激（前 3000 采样含 2 帧：len=138 截头帧 + len=111）
