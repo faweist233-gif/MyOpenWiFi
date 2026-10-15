@@ -1,0 +1,103 @@
+--- a/verilog/sync_long.v
++++ b/verilog/sync_long.v
+@@ -73,6 +73,33 @@
+ reg [31:0] metric_max2;
+ reg [(IN_BUF_LEN_SHIFT-1):0] addr2;
+ reg [15:0] gap;
++
++// ============================================================
++// Fix A1: 归一化检测判据 —— 16 采样滑动窗能量(与互相关同一批采样)。
++// metric_stb 时刻直接取当前 energy_sum:LTF 恒幅区/噪声平稳,几采样
++// 错位不改变窗能量,无需与相关流水精确对齐。
++// 判据: metric² ≥ REF_TEMPLATE_PWR2·energy_sum / 2^NORM_THRESH_DIV
++//       (即归一化相关 ≥ 0.25;真实 LTF≈1,白噪声均值 1/16)
++// ============================================================
++reg signed [47:0] energy_sum;
++localparam [17:0] REF_TEMPLATE_PWR2 = 18'd206133;  // Σ|c|²,do_mult 的 16 个模板系数
++localparam NORM_THRESH_DIV = 2;   // 阈值除数(2 的幂):0.25
++
++wire [31:0] e_new =
++    $unsigned($signed(sample_in[31:16]) * $signed(sample_in[31:16]))
++  + $unsigned($signed(sample_in[15:0])  * $signed(sample_in[15:0]));
++wire [31:0] e_old =
++    $unsigned($signed(cross_corr_buf[0][31:16]) * $signed(cross_corr_buf[0][31:16]))
++  + $unsigned($signed(cross_corr_buf[0][15:0])  * $signed(cross_corr_buf[0][15:0]));
++
++wire [63:0] metric_sq = $unsigned(metric) * $unsigned(metric);
++wire [63:0] energy_scaled = $unsigned(energy_sum)
++                          * (REF_TEMPLATE_PWR2 >> NORM_THRESH_DIV);
++wire metric_pass = metric_sq >= energy_scaled;
++
++// Fix A2: 双峰幅度一致性 —— 两个 LTF 符号幅度必须相当(±3.5dB)
++wire peak_consistent = (metric_max2 <= (metric_max1 + (metric_max1 >> 1)))
++                    && (metric_max1 <= (metric_max2 + (metric_max2 >> 1)));
+ 
+ reg [31:0] cross_corr_buf[0:15];
+ 
+@@ -231,7 +258,8 @@
+             S_WAIT_FOR_FIRST_PEAK: begin
+                 do_mult();
+ 
+-                if (metric_stb && (metric > metric_max1)) begin
++                // Fix A1: 只有通过归一化判据的 metric 才参与峰值搜索
++                if (metric_stb && metric_pass && (metric > metric_max1)) begin
+                     metric_max1 <= metric;
+                     addr1 <= in_raddr - 1;
+                 end
+@@ -249,7 +277,8 @@
+             S_WAIT_FOR_SECOND_PEAK: begin
+                 do_mult();
+ 
+-                if (metric_stb && (metric > metric_max2)) begin
++                // Fix A1: 同上
++                if (metric_stb && metric_pass && (metric > metric_max2)) begin
+                     metric_max2 <= metric;
+                     addr2 <= in_raddr - 1;
+                 end
+@@ -260,7 +289,10 @@
+                         $display("PEAK GAP: %d (%d - %d)", gap, addr2, addr1);
+                         $display("PHASE OFFSET: %d", phase_offset);
+                     `endif
+-                    if (gap > 62 && gap < 66) begin
++                    // Fix A: 间距 64±1 + 双峰都通过归一化判据 + 幅度一致
++                    if ((gap > 62 && gap < 66)
++                        && (metric_max1 > 0) && (metric_max2 > 0)
++                        && peak_consistent) begin
+                         long_preamble_detected <= 1;
+                         num_sample <= 0;
+                         mult_strobe <= 0;
+@@ -275,7 +307,14 @@
+                         next_phase_correction <= phase_offset;
+                         state <= S_FFT;
+                     end else begin
+-                        state <= S_IDLE;
++                        // Fix A3: 失败重装(重新跳过 32 采样再搜索),
++                        // 不再卡死在无退出的 S_IDLE
++                        metric_max1 <= 0;
++                        metric_max2 <= 0;
++                        addr1 <= 0;
++                        addr2 <= 0;
++                        num_sample <= 0;
++                        state <= S_SKIPPING;
+                     end
+                 end else if (metric_stb) begin
+                     num_sample <= num_sample + 1;
+@@ -366,6 +405,9 @@
+             cross_corr_buf[do_mult_i] <= cross_corr_buf[do_mult_i+1];
+         end
+ 
++        // Fix A1: 滑动窗能量更新(进新样本、出最老样本)
++        energy_sum <= energy_sum + e_new - e_old;
++
+         sum_stage <= 0;
+         sum_i <= 0;
+         sum_q <= 0;
+@@ -480,6 +522,8 @@
+     sum_stage <= 0;
+     mult_strobe <= 0;
+ 
++    energy_sum <= 0;
++
+     metric_max1 <= 0;
+     addr1 <= 0;
+     metric_max2 <= 0;
