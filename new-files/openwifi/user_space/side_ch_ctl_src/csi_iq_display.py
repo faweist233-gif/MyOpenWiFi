@@ -20,7 +20,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
-UDP_IP = "192.168.10.1"   # Local IP to listen
+UDP_IP = "192.168.10.2"   # Local IP to listen (PC 侧 Windows「以太网 2」；.1 是 VMnet1 收不到)
 UDP_PORT = 4000            # Local port to listen
 
 # align with side_ch_control.v and all related user space / driver / remote files

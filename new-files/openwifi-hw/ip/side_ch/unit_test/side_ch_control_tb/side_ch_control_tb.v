@@ -25,7 +25,8 @@ module side_ch_control_tb;
   localparam integer MAX_BIT_NUM_DMA   = 13;        // clogb2(4096) = 13 (12 会截断 >4095 的 iq_len)
 
   localparam integer IQ_LEN        = 440;
-  localparam integer PRE_TRIG_OK   = 300;           // C1: long_preamble_detected rel. sample
+  localparam integer PRE_TRIG_OK   = 300;           // C1 for THIS testbench (self-consistent with gen_preamble.py);
+                                                     // board-calibrated C1 = 256 (see 部署文档 §5.1, e316_deploy.sh)
   localparam integer NUM_EQ        = 0;
   localparam integer CSI_BLK       = 2 + 56;
   localparam integer RECORD_LEN    = (1+IQ_LEN) + CSI_BLK;         // 499

@@ -150,3 +150,14 @@ index c3f2212..9454208 100755
  )
  
  ### Copy fsbl and system_top.bit into the output folder
+diff --git a/user_space/side_ch_ctl_src/side_ch_ctl.c b/user_space/side_ch_ctl_src/side_ch_ctl.c
+--- a/user_space/side_ch_ctl_src/side_ch_ctl.c
++++ b/user_space/side_ch_ctl_src/side_ch_ctl.c
+@@ -286,3 +286,7 @@
+ int main(const int argc, char * const argv[])
+ {
++	// line-buffered stdout: with output redirected to a file, the default full
++	// buffering (4KB) made "loop N side info count M" lines invisible until exit;
++	// stdbuf cannot help on a static binary (LD_PRELOAD). See 打通报告 阻塞点 5.
++	setvbuf(stdout, NULL, _IOLBF, 0);
+     int action_flag, reg_type, reg_idx, interval_ms, s, side_info_size, socket_ok = 1, loop_count=0, side_info_count=0;
