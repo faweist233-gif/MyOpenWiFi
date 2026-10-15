@@ -287,36 +287,48 @@ def s16(v):
 
 
 def find_alignment(u64, layout):
-    """扫描 s∈[0,REC_WORDS),返回使 TSF 单调、数值合理且同 record 配对的起点。
-    移植自 win_listen_iq.py:PC 从流中途接入时 bin 起点 ≠ record 起点。"""
+    """扫描 s∈[0,REC_WORDS),返回使 TSF 单调且同 record 配对的 record 起点。
+    移植自 win_listen_iq.py,并把"要求 64 条连续单调"改为"连续 need=4 条即锁定、
+    遇损坏即停"——win_listen 是增量解析(锁定时缓冲里还没有流中部的损坏),
+    本工具一次性加载整段流,若要求 64 条连续单调会被流中部损坏区打死,
+    导致整段 0 解析;锁定后由 iter_records 的前进解析 + 重同步跨过损坏区。"""
     L = layout
     n = len(u64)
     need = 4
     if n < (need + 1) * REC_WORDS:
         return None
+    other_off = L["OFF_TSF_CSI"] if L["OFF_TSF_IQ"] == 0 else L["OFF_TSF_IQ"]
+
+    def ok_rec(s, k):
+        """第 k 条 record 的 TSF 合理性 + 同包配对。返回配对差(μs)或 None。"""
+        b = s + k * REC_WORDS
+        if b + REC_WORDS > n:
+            return None
+        vi = int(u64[b + L["OFF_TSF_IQ"]])
+        vc = int(u64[b + L["OFF_TSF_CSI"]])
+        if vi >= TSF_MAX or vc >= TSF_MAX:
+            return None
+        d = vc - vi
+        return d if 0 <= d <= TSF_PAIR_GAP_MAX else None
+
     for s in range(REC_WORDS):
-        kmax = min((n - s) // REC_WORDS, 64)
+        kmax = (n - s) // REC_WORDS
         if kmax < need:
             break
-        seq = [u64[s + k * REC_WORDS] for k in range(kmax)]
-        if not all(v < TSF_MAX for v in seq):
+        if ok_rec(s, 0) is None:
             continue
-        if not all(seq[i] <= seq[i + 1] for i in range(kmax - 1)):
-            continue
-        other_off = L["OFF_TSF_CSI"] if L["OFF_TSF_IQ"] == 0 else L["OFF_TSF_IQ"]
-        other_seq = [u64[s + k * REC_WORDS + other_off]
-                     for k in range(kmax) if s + k * REC_WORDS + other_off < n]
-        if not other_seq or not all(v < TSF_MAX for v in other_seq):
-            continue
-        paired = True
-        for k in range(len(other_seq)):
-            d = (other_seq[k] - seq[k]) if other_off != L["OFF_TSF_IQ"] \
-                else (seq[k] - other_seq[k])
-            if not (0 <= d <= TSF_PAIR_GAP_MAX):
-                paired = False
+        n_good = 1
+        prev_i = int(u64[s + L["OFF_TSF_IQ"]])
+        for k in range(1, kmax):
+            if ok_rec(s, k) is None:
                 break
-        if paired:
-            return (s, kmax)
+            vi = int(u64[s + k * REC_WORDS + L["OFF_TSF_IQ"]])
+            if vi < prev_i:
+                break
+            prev_i = vi
+            n_good += 1
+            if n_good >= need:
+                return (s, n_good)
     return None
 
 
