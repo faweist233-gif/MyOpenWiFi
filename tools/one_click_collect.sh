@@ -65,6 +65,8 @@ if $SKIP_DEPLOY; then
   echo "[1/5] 跳过部署（--skip-deploy，假定板子已就绪）"
 else
   echo "[1/5] 部署板端（ADC 修复 + 模块重载 + monitor + side_ch）..."
+  # 兜底:板端 busybox sh 只认 LF,防止 Windows 检出把脚本变 CRLF 导致 sh 报错
+  sed -i 's/\r$//' "$TOOLS/e316_deploy.sh" "$TOOLS/e316_collect.sh"
   scp -o StrictHostKeyChecking=accept-new "$TOOLS/e316_deploy.sh" root@192.168.10.122:/tmp/
   ssh -o StrictHostKeyChecking=accept-new root@192.168.10.122 "sh /tmp/e316_deploy.sh $CH"
 fi
@@ -78,6 +80,8 @@ sleep 2   # 等监听 bind 完成
 
 # ---- [3/5] 采集 ----
 echo "[3/5] 板端采集（排空 2s + 采集 ${DUR}s）..."
+# 同 [1/5]:确保推给板子的脚本是 LF 行尾
+sed -i 's/\r$//' "$TOOLS/e316_collect.sh"
 scp -o StrictHostKeyChecking=accept-new "$TOOLS/e316_collect.sh" root@192.168.10.122:/tmp/
 ssh -o StrictHostKeyChecking=accept-new root@192.168.10.122 "sh /tmp/e316_collect.sh $DUR $PCIP"
 
