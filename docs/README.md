@@ -58,7 +58,7 @@ python ~/tools/win_listen_iq.py C:/iq 60 --layout=iq_first
 | PC IP（Windows「以太网 2」） | `192.168.10.2`（VMnet1 = `.1`，发过去收不到） |
 | UDP 端口 | `4000` |
 | 监听器 | `win_listen_iq.py --layout=iq_first`（Windows 侧跑；`wsl_listen_4000.py` 为 mirrored 时代的旧工具） |
-| side_ch 加载参数 | `iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=256` |
+| side_ch 加载参数 | `iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=280`（C1 实测 280） |
 | 记录长度 | `RECORD_LEN(440,0) = 499` |
 | UDP 包长 | 3992 的整数倍（3992 = 499×8） |
 

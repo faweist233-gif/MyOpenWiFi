@@ -296,8 +296,9 @@ cd ~/openwifi && ./wgd.sh
 ./sdrctl dev sdr0 get reg xpu 63
 
 # 8.4 单独加载联合模式 side_ch（wgd.sh 不装它）
-insmod ./side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=256 combined_init=1
-#    ↑ pre_trigger_init = C1 定标常数（本板实测 256，见部署文档 §5.1）；必须与采集同 FFT_WIN_SHIFT
+insmod ./side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=280 combined_init=1
+#    ↑ pre_trigger_init = C1 定标常数（2026-10-15 回环注入实测 280；早期估 256 偏小，
+#     导致 IQ 窗口比包起点晚 24 采样、L-STF 前 24 采样被截）；必须与采集同 FFT_WIN_SHIFT
 
 # 8.5 可选：地址过滤（allow-all 默认即 probe 设好）
 #     只抓指定对端:  ./side_ch_ctl wh1h6001 && ./side_ch_ctl wh7h<对端MAC低32位>

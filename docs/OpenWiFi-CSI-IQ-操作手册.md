@@ -101,7 +101,7 @@ iw dev sdr0 set channel 11
 sleep 3
 
 # 4) 加载 side_ch（联合采集：iq_len=440, num_eq=0, combined=1）
-insmod side_ch.ko iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=256
+insmod side_ch.ko iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=280
 sleep 2
 ./side_ch_ctl rh20          # 看硬件 FIFO 是否有数据
 
@@ -188,7 +188,7 @@ for M in tx_intf rx_intf openofdm_tx openofdm_rx xpu sdr; do insmod $M.ko; done
 | rh1  | **1**   | enable                                      |
 | rh2  | **998** | RECORD_LEN(440,0) = (1+440)+(2+56) = 499，×2 |
 | rh3  | **3**   | trigger 模式                                  |
-| rh11 | **256** | pre_trigger                                 |
+| rh11 | **280** | pre_trigger（C1 定标，2026-10-15 回环注入实测） |
 | rh12 | **440** | iq_len                                      |
 | rh20 | 动态      | M_AXIS_DATA_COUNT（>0 即有数据；采集后应 <1000）       |
 

@@ -6,7 +6,7 @@ index a031eeb..771c9ad 100644
  
  static int num_eq_init = 8; // should be 0~8
  static int iq_len_init = 0; //if iq_len>0, iq capture enabled, csi disabled
-+static int pre_trigger_init = 256; // pre_trigger_len in samples (C1 calibration constant for combined mode)
++static int pre_trigger_init = 280; // pre_trigger_len in samples (C1 calibration constant for combined mode; 2026-10-15 loopback-inject measured 280)
 +static int combined_init = 0; //if combined_init>0, CSI + IQ combined capture enabled (csi_iq_combined=1)
  
  module_param(num_eq_init, int, 0);
@@ -16,7 +16,7 @@ index a031eeb..771c9ad 100644
  MODULE_PARM_DESC(iq_len_init, "iq_len_init. if iq_len_init>0, iq capture enabled, csi disabled");
  
 +module_param(pre_trigger_init, int, 0);
-+MODULE_PARM_DESC(pre_trigger_init, "pre_trigger_len in samples. C1 calibration constant: distance from long_preamble_detected peak back to packet start. Written to reg11. Default 256.");
++MODULE_PARM_DESC(pre_trigger_init, "pre_trigger_len in samples. C1 calibration constant: distance from long_preamble_detected peak back to packet start. Written to reg11. Default 280 (measured 2026-10-15).");
 +
 +module_param(combined_init, int, 0);
 +MODULE_PARM_DESC(combined_init, "combined_init. 1 = CSI + preamble IQ combined capture (reg3 bit0|bit1). IQ window locked by long_preamble_detected, pushed on CSI FC/addr commit.");

@@ -116,8 +116,8 @@ ssh root@192.168.10.122
 #    insmod xilinx_dma.ko
 #    for M in tx_intf rx_intf openofdm_tx openofdm_rx xpu sdr; do insmod $M.ko; done
 # 3) 单独加载 side_ch（必须在模块组加载之后）
-insmod /root/side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=256 combined_init=1
-#    pre_trigger_init = C1 定标常数（§5.1），本板实测 = 256
+insmod /root/side_ch.ko iq_len_init=440 num_eq_init=0 pre_trigger_init=280 combined_init=1
+#    pre_trigger_init = C1 定标常数（§5.1），2026-10-15 回环注入实测 = 280（早期估 256 偏小 24 采样）
 # 4) monitor 模式（★ CSI 必须 monitor，不能用 ad-hoc）
 ip link set sdr0 down && iw dev sdr0 set type monitor && ip link set sdr0 up
 iw dev sdr0 set channel 11

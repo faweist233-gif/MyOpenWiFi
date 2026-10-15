@@ -62,7 +62,10 @@ printf "  rx_packets delta=%d" $((R1-R0))
 echo
 
 echo "[STEP5] 加载 side_ch.ko（联合采集）"
-insmod side_ch.ko iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=256 2>&1
+# ★ pre_trigger_init = C1 定标常数（long_preamble_detected 尖峰→包起点的距离）。
+#   2026-10-15 板级回环注入实测 C1=280（59 帧 stf_start 全部 -24 @ pre_trigger=256）。
+#   FFT_WIN_SHIFT 配置变化会挪动 C1，重新定标后再改这里。
+insmod side_ch.ko iq_len_init=440 num_eq_init=0 combined_init=1 pre_trigger_init=280 2>&1
 echo "  rc=$?"
 sleep 2
 printf "  rh20 (硬件 FIFO): "; ./side_ch_ctl rh20 2>&1 | grep -oE "val [0-9]+" | tail -1
