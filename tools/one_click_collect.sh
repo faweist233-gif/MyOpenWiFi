@@ -10,7 +10,8 @@
 #   [0] 等板上线   [1] 部署板端   [2] Windows 监听   [3] 采集(排空+推UDP)   [4] 收尾
 #
 # 依赖:
-#   - WSL Ubuntu-22.04（auto_ssh.py 需在 WSL 内跑，Windows python 无 pty 模块）
+#   - Windows 内置 OpenSSH 客户端（ssh/scp）+ 板端公钥认证
+#     （一次性把本机公钥装入板端，见操作手册 §八；未装时 ssh 会交互问密码）
 #   - Windows Python（跑 win_listen_iq.py 监听器）
 #   - 板子 root@192.168.10.122 / openwifi，PC 侧网卡 192.168.10.2
 #
@@ -54,7 +55,8 @@ if $SKIP_DEPLOY; then
   echo "[1/4] 跳过部署（--skip-deploy，假定板子已就绪）"
 else
   echo "[1/4] 部署板端（ADC 修复 + 模块重载 + monitor + side_ch）..."
-  wsl.exe -d Ubuntu-22.04 -- bash -lc "cd /mnt/c/OpenWiFi/tools && python3 auto_ssh.py openwifi scp e316_deploy.sh root@192.168.10.122:/tmp/ && python3 auto_ssh.py openwifi ssh root@192.168.10.122 \"sh /tmp/e316_deploy.sh $CH\""
+  scp -o StrictHostKeyChecking=accept-new "$TOOLS/e316_deploy.sh" root@192.168.10.122:/tmp/
+  ssh -o StrictHostKeyChecking=accept-new root@192.168.10.122 "sh /tmp/e316_deploy.sh $CH"
 fi
 
 # ---- [2/4] 启动 Windows 监听 ----
@@ -66,8 +68,8 @@ sleep 2   # 等监听 bind 完成
 
 # ---- [3/4] 采集 ----
 echo "[3/4] 板端采集（排空 2s + 采集 ${DUR}s）..."
-# AUTO_SSH_IDLE_TIMEOUT 要 > 采集 sleep 时长，否则 auto_ssh.py 会在 sleep 期间误判中断
-wsl.exe -d Ubuntu-22.04 -- bash -lc "cd /mnt/c/OpenWiFi/tools && AUTO_SSH_IDLE_TIMEOUT=$((DUR+30)) python3 auto_ssh.py openwifi scp e316_collect.sh root@192.168.10.122:/tmp/ && AUTO_SSH_IDLE_TIMEOUT=$((DUR+30)) python3 auto_ssh.py openwifi ssh root@192.168.10.122 \"sh /tmp/e316_collect.sh $DUR $PCIP\""
+scp -o StrictHostKeyChecking=accept-new "$TOOLS/e316_collect.sh" root@192.168.10.122:/tmp/
+ssh -o StrictHostKeyChecking=accept-new root@192.168.10.122 "sh /tmp/e316_collect.sh $DUR $PCIP"
 
 # ---- [4/4] 收尾 ----
 echo "[4/4] 等待监听收尾..."

@@ -427,9 +427,10 @@ do_synth() {
   [ -d "$dir/ip_repo" ] || die "ip_repo 未生成，请先：./build_env.sh iprepo"
   [ -f "$tcl" ] || die "找不到 $tcl"
 
-  # ★ 踩坑：openwifi.tcl 写死 impl_1 -jobs 8，WSL 内存扛不住，临时改小
+  # ★ 踩坑：openwifi.tcl 的 impl_1 并行度写死（上游 -jobs 8，本仓库补丁已改 -jobs 3）。
+  #   这里仍按 $JOBS 临时覆盖（sed 兼容两者），让 JOBS 环境变量生效。
   local tmp="$tcl.buildenv.$$"
-  sed "s/impl_1 -jobs 8/impl_1 -jobs $JOBS/g" "$tcl" > "$tmp"
+  sed -E "s/impl_1 -jobs [0-9]+/impl_1 -jobs $JOBS/g" "$tcl" > "$tmp"
   ( cd "$dir" && source "$XILINX_DIR/Vitis/2022.2/settings64.sh" \
       && vivado -mode batch -source "$(basename "$tmp")" \
       2>&1 | tee "$HOME/vivado_synth.log" | tail -40 )

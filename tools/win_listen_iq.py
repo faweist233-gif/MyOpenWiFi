@@ -51,8 +51,8 @@ PAIR_WINDOW = (10, 60)            # 同包配对 TSF 差的正常窗口 (µs)：
 TSF_PAIR_GAP_MAX = 50
 
 # ---- 块顺序（两种布局，由 --layout 选择）----
-#   csi_first：当前 bitstream 实测（[CSI块][IQ块]，跨包错位 bug 的表象）
-#   iq_first ：RTL 设计意图 / 修复后（[IQ块][CSI块]）
+#   csi_first：历史（跨包错位 bug 时代的 bitstream，[CSI块][IQ块]）
+#   iq_first ：当前（RTL 修复后，[IQ块][CSI块] 同包配对）——默认
 LAYOUTS = {
     "csi_first": dict(OFF_TSF_CSI=0,   OFF_PHASE=1,   OFF_CSI=2,
                       OFF_TSF_IQ=CSI_BLK_LEN,              OFF_IQ=CSI_BLK_LEN + 1),
@@ -65,7 +65,7 @@ LAYOUTS = {
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 CLEAN = "--clean" in sys.argv[1:]
 
-_LAYOUT = "csi_first"
+_LAYOUT = "iq_first"
 for a in sys.argv[1:]:
     if a.startswith("--layout="):
         _LAYOUT = a.split("=", 1)[1].strip()

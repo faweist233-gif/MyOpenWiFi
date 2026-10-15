@@ -4,8 +4,8 @@
 #   用法（板端）: sh e316_collect.sh <DURATION> [PC_IP] [FLUSH_S]
 #   默认: 25 秒采集, PC_IP=192.168.10.2, 排空 2 秒
 #
-# ★ 使用前请先在 PC(WSL) 侧启动监听:
-#     python3 /mnt/c/OpenWiFi/tools/wsl_listen_4000.py
+# ★ 使用前请先在 PC（Windows 侧）启动监听（现拓扑 NAT，WSL 内收不到）:
+#     python C:/OpenWiFi/tools/win_listen_iq.py C:/iq 60 --layout=iq_first
 #   本脚本会先排空 FIFO 再正式采集并推 UDP，务必让监听窗口覆盖本脚本的执行时间。
 #
 # 关键技术点:

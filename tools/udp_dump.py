@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pure-text UDP dump for side_ch combined CSI+IQ (no matplotlib).
-Bind localhost:4000, receive N packets, write raw hex to a file.
+Bind 0.0.0.0:4000, receive N packets, write raw hex to a file.
 Usage: udp_dump.py <iq_len> <num_pkts> <outfile>
 """
 import os

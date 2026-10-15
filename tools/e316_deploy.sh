@@ -13,7 +13,21 @@ echo "########## E316 CSI+IQ 部署 (ch=$CH) ##########"
 echo "[STEP1] cf_axi_adc 绑定检查/修复"
 if [ ! -e /sys/bus/platform/drivers/cf_axi_adc/79020000.cf-ad9361-lpc ]; then
   echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind 2>&1
-  echo "  rebind rc=$?"
+  echo "  bind rc=$?"
+  sleep 1
+fi
+if [ ! -e /sys/bus/platform/drivers/cf_axi_adc/79020000.cf-ad9361-lpc ]; then
+  # 直接 bind 未生效（dmesg 报 "Failed to get converter device: -19"）：开机
+  # ad9361_dig_tune 失败(-5)后 ad9361 侧的 converter 注册已陈旧，必须整链重绑。
+  echo "  直接 bind 未生效 → 整链重绑 ad9361 → dds → adc"
+  echo 79024000.cf-ad9361-dds-core-lpc > /sys/bus/platform/drivers/cf_axi_dds/unbind 2>/dev/null
+  echo spi0.0 > /sys/bus/spi/drivers/ad9361/unbind 2>/dev/null
+  sleep 1
+  echo spi0.0 > /sys/bus/spi/drivers/ad9361/bind 2>&1
+  sleep 2
+  echo 79024000.cf-ad9361-dds-core-lpc > /sys/bus/platform/drivers/cf_axi_dds/bind 2>/dev/null
+  echo 79020000.cf-ad9361-lpc > /sys/bus/platform/drivers/cf_axi_adc/bind 2>&1
+  sleep 1
 fi
 ls /sys/bus/platform/drivers/cf_axi_adc/ | grep 79020000 && echo "  ADC bound OK"
 echo

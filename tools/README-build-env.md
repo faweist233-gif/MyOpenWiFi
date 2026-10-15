@@ -84,7 +84,7 @@ JOBS=2 ./build_env.sh synth
 | 4 | `prepare_kernel.sh` 硬编码 `make -j12` | WSL 8G 内存必 OOM，脚本改为临时 `-j$JOBS`（改副本，不动原文件） |
 | 5 | `prepare_kernel.sh` 会主动 `git checkout 2026_R1`，而浅克隆只有 2019_R1 | 先 `kernel-fetch` 显式拉齐 2026_R1 并解除 shallow |
 | 6 | 内核补丁 `git apply` 不带 `--check`，冲突后内核树变脏 | 先 `kernel-check` 逐个 `--check` 预检 |
-| 7 | `openwifi.tcl` 写死 `impl_1 -jobs 8` | 综合前临时改小并行度 |
+| 7 | `openwifi.tcl` 写死 `impl_1 -jobs 8` | 本仓库补丁已把上游的 `-jobs 8` 改为 `-jobs 3`；脚本仍会按 `JOBS` 变量临时覆盖（`sed` 同时兼容 8/3），`JOBS=2 ./build_env.sh synth` 可进一步降并行度 |
 | 8 | `.xsa` 里 `.bit` 是 zip 成员，`unzip` 可能不可用 | 用 Python `zipfile` 解出 |
 | 9 | 跨文件系统拷贝（NTFS→ext4）会丢可执行权限 | 安装前 `chmod +x xsetup` 及 `bin/`、`scripts/` 下的 `.sh` |
 | 10 | WSL 的 `eth0` MAC **每次冷启动都变**，不能用来申请 license | 用宿主机 Windows 物理网卡 MAC（如 WLAN），稳定不变 |
@@ -114,7 +114,9 @@ JOBS=2 ./build_env.sh synth
 |---|---|
 | `tools/e316_deploy.sh` | 板端部署（ADC 绑定 → 重载模块 → monitor → 加载 side_ch） |
 | `tools/e316_collect.sh` | 板端采集（`kill -INT` 收尾，UDP 发往 PC） |
-| `tools/wsl_listen_4000.py` | WSL 侧 UDP 接收 |
-| `tools/auto_ssh.py` | 免密喂密码的 ssh/scp 封装 |
+| `tools/one_click_collect.sh` | ★ 一键采集（Git Bash：等板 → 部署 → 监听 → 采集 → 收尾） |
+| `tools/win_listen_iq.py` | ★ Windows 侧 UDP 接收 + 自对齐解析（NAT 拓扑，`--layout=iq_first`） |
+| `tools/wsl_listen_4000.py` | 旧：mirrored 时代的 WSL 侧接收（现 NAT 拓扑下收不到，勿用） |
+| `tools/auto_ssh.py` | 免密喂密码的 ssh/scp 封装（仅用于首次往板端装公钥，之后板端命令直接走 Windows 内置 ssh/scp） |
 
 详见《OpenWiFi-CSI-IQ-操作手册.md》。
